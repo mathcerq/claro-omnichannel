@@ -1,0 +1,89 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(uuid())
+  name         String
+  email        String   @unique
+  phone        String?
+  passwordHash String
+  role         String   @default("CLIENT")
+  totpSecret   String?
+  totpEnabled  Boolean  @default(false)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  clientProtocols   Protocol[]        @relation("ClientProtocols")
+  agentProtocols    Protocol[]        @relation("AgentProtocols")
+  sentMessages      Message[]
+  twoFactorSessions TwoFactorSession[]
+  auditLogs         AuditLog[]
+}
+
+model Protocol {
+  id             String    @id @default(uuid())
+  protocolNumber String    @unique
+  title          String
+  description    String?
+  status         String    @default("OPEN")
+  priority       String    @default("MEDIUM")
+  currentChannel String    @default("WEBCHAT")
+
+  clientId String
+  client   User   @relation("ClientProtocols", fields: [clientId], references: [id])
+
+  agentId String?
+  agent   User?   @relation("AgentProtocols", fields: [agentId], references: [id])
+
+  messages  Message[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  closedAt  DateTime?
+}
+
+model Message {
+  id         String   @id @default(uuid())
+  content    String
+  channel    String
+  senderRole String
+  isRead     Boolean  @default(false)
+  metadata   String?
+  createdAt  DateTime @default(now())
+
+  protocolId String
+  protocol   Protocol @relation(fields: [protocolId], references: [id])
+
+  senderId String
+  sender   User   @relation(fields: [senderId], references: [id])
+}
+
+model TwoFactorSession {
+  id        String   @id @default(uuid())
+  tokenHash String
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  action    String
+  resource  String
+  details   String?
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id])
+}

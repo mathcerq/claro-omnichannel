@@ -1,0 +1,224 @@
+import { useEffect, useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
+import {
+  LayoutDashboard, LogOut, Users, RefreshCw, Search, Wifi,
+  AlertTriangle, Clock, CheckCircle, Inbox, TrendingUp, Shield
+} from 'lucide-react';
+import toast from 'react-hot-toast';
+import api from '../api/axios';
+import { getSocket } from '../api/socket';
+import { useAuthStore } from '../store/auth.store';
+import { useProtocolsStore, Protocol } from '../store/protocols.store';
+import ChannelBadge from '../components/ChannelBadge';
+import { StatusBadge, PriorityBadge } from '../components/StatusBadge';
+
+export default function Dashboard() {
+  const navigate = useNavigate();
+  const { user, logout } = useAuthStore();
+  const { protocols, stats, setProtocols, setStats, updateProtocol } = useProtocolsStore();
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+
+  const fetchData = useCallback(async () => {
+    try {
+      const [protRes, statRes] = await Promise.all([
+        api.get('/protocols'),
+        api.get('/protocols/stats'),
+      ]);
+      setProtocols(protRes.data);
+      setStats(statRes.data);
+    } catch {
+      /* handled by interceptor */
+    } finally {
+      setLoading(false);
+    }
+  }, [setProtocols, setStats]);
+
+  useEffect(() => {
+    fetchData();
+    const socket = getSocket();
+    socket.on('protocols_list_updated', (data) => {
+      updateProtocol(data.protocolId, data);
+    });
+    socket.on('new_message', () => fetchData());
+    return () => {
+      socket.off('protocols_list_updated');
+      socket.off('new_message');
+    };
+  }, [fetchData, updateProtocol]);
+
+  const handleLogout = () => {
+    logout();
+    navigate('/login');
+    toast.success('Até logo!');
+  };
+
+  const handleAssignSelf = async (e: React.MouseEvent, protocol: Protocol) => {
+    e.stopPropagation();
+    try {
+      await api.patch(`/protocols/${protocol.id}/assign`, { agentId: user?.id });
+      toast.success('Protocolo assumido!');
+      fetchData();
+    } catch {}
+  };
+
+  const filtered = protocols.filter((p) => {
+    const matchSearch =
+      !search ||
+      p.title.toLowerCase().includes(search.toLowerCase()) ||
+      p.protocolNumber.toLowerCase().includes(search.toLowerCase()) ||
+      p.client.name.toLowerCase().includes(search.toLowerCase());
+    const matchStatus = !statusFilter || p.status === statusFilter;
+    return matchSearch && matchStatus;
+  });
+
+  const statsCards = [
+    { label: 'Total', value: stats?.total ?? 0, Icon: TrendingUp, color: 'text-gray-300' },
+    { label: 'Abertos', value: stats?.open ?? 0, Icon: Inbox, color: 'text-emerald-400' },
+    { label: 'Em Andamento', value: stats?.inProgress ?? 0, Icon: Clock, color: 'text-blue-400' },
+    { label: 'Aguardando', value: stats?.waiting ?? 0, Icon: AlertTriangle, color: 'text-amber-400' },
+    { label: 'Encerrados', value: stats?.closed ?? 0, Icon: CheckCircle, color: 'text-gray-500' },
+  ];
+
+  return (
+    <div className="min-h-screen bg-gray-950 flex flex-col">
+      {/* Header */}
+      <header className="bg-gray-900 border-b border-gray-800 px-6 py-3 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 bg-claro-red rounded-lg flex items-center justify-center">
+            <Shield size={18} className="text-white" />
+          </div>
+          <div>
+            <span className="font-bold text-white">Claro Omnichannel</span>
+            <span className="text-gray-500 text-xs ml-2">Painel do Atendente</span>
+          </div>
+        </div>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 text-sm text-gray-400">
+            <Wifi size={14} className="text-emerald-400" />
+            <span className="hidden sm:block">{user?.name}</span>
+            <span className="badge bg-gray-800 text-gray-300">{user?.role}</span>
+          </div>
+          <button onClick={fetchData} className="p-2 hover:bg-gray-800 rounded-lg text-gray-400 hover:text-white transition-colors">
+            <RefreshCw size={16} />
+          </button>
+          <button onClick={handleLogout} className="flex items-center gap-2 text-gray-400 hover:text-white text-sm px-3 py-1.5 hover:bg-gray-800 rounded-lg transition-colors">
+            <LogOut size={16} />
+            <span className="hidden sm:block">Sair</span>
+          </button>
+        </div>
+      </header>
+
+      {/* Stats */}
+      <div className="px-6 py-4 grid grid-cols-2 sm:grid-cols-5 gap-3">
+        {statsCards.map(({ label, value, Icon, color }) => (
+          <div key={label} className="card p-4 flex items-center gap-3">
+            <Icon size={22} className={color} />
+            <div>
+              <p className="text-2xl font-bold text-white">{value}</p>
+              <p className="text-xs text-gray-400">{label}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Filters */}
+      <div className="px-6 pb-3 flex gap-3 flex-wrap">
+        <div className="relative flex-1 min-w-[200px]">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="input pl-9 text-sm"
+            placeholder="Buscar por título, protocolo ou cliente..."
+          />
+        </div>
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+          className="input w-auto text-sm"
+        >
+          <option value="">Todos os status</option>
+          <option value="OPEN">Aberto</option>
+          <option value="IN_PROGRESS">Em Andamento</option>
+          <option value="WAITING">Aguardando</option>
+          <option value="CLOSED">Encerrado</option>
+        </select>
+      </div>
+
+      {/* Table */}
+      <div className="px-6 pb-6 flex-1">
+        <div className="card overflow-hidden">
+          {loading ? (
+            <div className="flex items-center justify-center py-20 text-gray-500">
+              <RefreshCw size={24} className="animate-spin mr-3" />
+              Carregando protocolos...
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 text-gray-500">
+              <LayoutDashboard size={40} className="mb-3 opacity-40" />
+              <p>Nenhum protocolo encontrado</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-gray-800 text-xs text-gray-400 uppercase tracking-wider">
+                    <th className="px-4 py-3 text-left">Protocolo</th>
+                    <th className="px-4 py-3 text-left">Título</th>
+                    <th className="px-4 py-3 text-left">Cliente</th>
+                    <th className="px-4 py-3 text-left">Canal</th>
+                    <th className="px-4 py-3 text-left">Status</th>
+                    <th className="px-4 py-3 text-left">Prioridade</th>
+                    <th className="px-4 py-3 text-left">Atendente</th>
+                    <th className="px-4 py-3 text-left">Atualizado</th>
+                    <th className="px-4 py-3 text-left">Ação</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-800">
+                  {filtered.map((p) => (
+                    <tr
+                      key={p.id}
+                      onClick={() => navigate(`/protocols/${p.id}`)}
+                      className="hover:bg-gray-800/50 cursor-pointer transition-colors"
+                    >
+                      <td className="px-4 py-3 text-xs font-mono text-claro-red font-semibold">{p.protocolNumber}</td>
+                      <td className="px-4 py-3">
+                        <p className="text-sm font-medium text-white truncate max-w-[180px]">{p.title}</p>
+                        {p._count && <p className="text-xs text-gray-500">{p._count.messages} msgs</p>}
+                      </td>
+                      <td className="px-4 py-3">
+                        <p className="text-sm text-gray-200">{p.client.name}</p>
+                        <p className="text-xs text-gray-500">{p.client.email}</p>
+                      </td>
+                      <td className="px-4 py-3"><ChannelBadge channel={p.currentChannel} /></td>
+                      <td className="px-4 py-3"><StatusBadge status={p.status} /></td>
+                      <td className="px-4 py-3"><PriorityBadge priority={p.priority} /></td>
+                      <td className="px-4 py-3 text-sm text-gray-400">
+                        {p.agent ? p.agent.name : <span className="text-amber-400 text-xs">Sem atendente</span>}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-gray-500">
+                        {new Date(p.updatedAt).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                      </td>
+                      <td className="px-4 py-3">
+                        {!p.agent && p.status !== 'CLOSED' && (
+                          <button
+                            onClick={(e) => handleAssignSelf(e, p)}
+                            className="text-xs bg-claro-red hover:bg-claro-red-dark text-white px-2 py-1 rounded-lg transition-colors"
+                          >
+                            Assumir
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
