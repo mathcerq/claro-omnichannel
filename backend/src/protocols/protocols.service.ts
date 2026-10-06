@@ -1,61 +1,64 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ForbiddenException,
+  BadRequestException,
+  ConflictException,
+} from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { randomInt } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateProtocolDto } from './dto/create-protocol.dto';
 import { UpdateProtocolDto } from './dto/update-protocol.dto';
+import { protocolSelect } from './protocol.select';
+import { ChannelRegistry } from '../channels/channel-registry.service';
+import { DomainEvents, ProtocolChangedEvent } from '../events/domain-events';
 
+const STAFF_ROLES = ['AGENT', 'SUPERVISOR', 'ADMIN'];
+
+/** Formato: CLR-AAAA-NNNNN (único e independente do canal). */
 function generateProtocolNumber(): string {
   const year = new Date().getFullYear();
-  const random = Math.floor(Math.random() * 90000) + 10000;
-  return `CLR-${year}-${random}`;
+  return `CLR-${year}-${randomInt(10000, 100000)}`;
 }
-
-const protocolSelect = {
-  id: true,
-  protocolNumber: true,
-  title: true,
-  description: true,
-  status: true,
-  priority: true,
-  currentChannel: true,
-  createdAt: true,
-  updatedAt: true,
-  closedAt: true,
-  client: {
-    select: { id: true, name: true, email: true, phone: true },
-  },
-  agent: {
-    select: { id: true, name: true, email: true },
-  },
-  _count: {
-    select: { messages: true },
-  },
-};
 
 @Injectable()
 export class ProtocolsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private events: EventEmitter2,
+    private channels: ChannelRegistry,
+  ) {}
 
-  async create(clientId: string, dto: CreateProtocolDto) {
-    let protocolNumber = generateProtocolNumber();
-    let attempts = 0;
-    while (attempts < 5) {
-      const exists = await this.prisma.protocol.findUnique({ where: { protocolNumber } });
-      if (!exists) break;
-      protocolNumber = generateProtocolNumber();
-      attempts++;
+  /**
+   * Abre um protocolo. `channel` é o canal de entrada: WEBCHAT pela API REST,
+   * TELEGRAM quando aberto pelo bot.
+   */
+  async create(clientId: string, dto: CreateProtocolDto, channel = 'WEBCHAT') {
+    let protocolNumber: string | null = null;
+    for (let attempt = 0; attempt < 10 && !protocolNumber; attempt++) {
+      const candidate = generateProtocolNumber();
+      const exists = await this.prisma.protocol.findUnique({ where: { protocolNumber: candidate } });
+      if (!exists) protocolNumber = candidate;
+    }
+    if (!protocolNumber) {
+      throw new ConflictException('Não foi possível gerar um número de protocolo. Tente novamente.');
     }
 
-    return this.prisma.protocol.create({
+    const protocol = await this.prisma.protocol.create({
       data: {
         protocolNumber,
         title: dto.title,
         description: dto.description,
         priority: dto.priority || 'MEDIUM',
-        currentChannel: dto.channel || 'WEBCHAT',
+        currentChannel: channel,
         clientId,
       },
       select: protocolSelect,
     });
+
+    this.emitChange(DomainEvents.PROTOCOL_CREATED, protocol);
+    return protocol;
   }
 
   async findAll(user: any) {
@@ -70,11 +73,7 @@ export class ProtocolsService {
     return this.prisma.protocol.findMany({
       where,
       select: protocolSelect,
-      orderBy: [
-        { status: 'asc' },
-        { priority: 'desc' },
-        { updatedAt: 'desc' },
-      ],
+      orderBy: [{ status: 'asc' }, { priority: 'desc' }, { updatedAt: 'desc' }],
     });
   }
 
@@ -90,7 +89,9 @@ export class ProtocolsService {
             channel: true,
             senderRole: true,
             isRead: true,
+            deliveryStatus: true,
             createdAt: true,
+            protocolId: true,
             sender: { select: { id: true, name: true, role: true } },
           },
           orderBy: { createdAt: 'asc' },
@@ -104,7 +105,11 @@ export class ProtocolsService {
       throw new ForbiddenException('Acesso negado a este protocolo');
     }
 
-    return protocol;
+    // Para o atendente: por quais canais ele consegue responder a este cliente
+    const availableChannels =
+      user.role === 'CLIENT' ? undefined : await this.channels.availableFor(protocol.client.id);
+
+    return { ...protocol, availableChannels };
   }
 
   async update(id: string, dto: UpdateProtocolDto, user: any) {
@@ -118,21 +123,41 @@ export class ProtocolsService {
     const data: any = { ...dto };
     if (dto.status === 'CLOSED') {
       data.closedAt = new Date();
+    } else if (dto.status && protocol.status === 'CLOSED') {
+      data.closedAt = null; // reabertura
     }
 
-    return this.prisma.protocol.update({
+    const updated = await this.prisma.protocol.update({
       where: { id },
       data,
       select: protocolSelect,
     });
+
+    this.emitChange(DomainEvents.PROTOCOL_UPDATED, updated, { ...dto });
+    return updated;
   }
 
   async assignAgent(protocolId: string, agentId: string) {
-    return this.prisma.protocol.update({
+    const [protocol, agent] = await Promise.all([
+      this.prisma.protocol.findUnique({ where: { id: protocolId } }),
+      this.prisma.user.findUnique({ where: { id: agentId } }),
+    ]);
+    if (!protocol) throw new NotFoundException('Protocolo não encontrado');
+    if (!agent || !agent.isActive || !STAFF_ROLES.includes(agent.role)) {
+      throw new BadRequestException('Atendente inválido');
+    }
+    if (protocol.status === 'CLOSED') {
+      throw new BadRequestException('Protocolo encerrado');
+    }
+
+    const updated = await this.prisma.protocol.update({
       where: { id: protocolId },
       data: { agentId, status: 'IN_PROGRESS' },
       select: protocolSelect,
     });
+
+    this.emitChange(DomainEvents.PROTOCOL_UPDATED, updated, { agentId, status: 'IN_PROGRESS' });
+    return updated;
   }
 
   async getStats() {
@@ -150,5 +175,39 @@ export class ProtocolsService {
     });
 
     return { total, open, inProgress, waiting, closed, byChannel };
+  }
+
+  // ── Consultas usadas pelos canais externos (ex.: bot do Telegram) ──────────
+
+  /** Protocolos não encerrados do cliente, do mais recente para o mais antigo. */
+  listOpenForClient(clientId: string, take = 10) {
+    return this.prisma.protocol.findMany({
+      where: { clientId, status: { not: 'CLOSED' } },
+      select: protocolSelect,
+      orderBy: { updatedAt: 'desc' },
+      take,
+    });
+  }
+
+  /** Protocolo do cliente por número (CLR-AAAA-NNNNN) ou id. */
+  findForClient(clientId: string, idOrNumber: string) {
+    return this.prisma.protocol.findFirst({
+      where: { clientId, OR: [{ id: idOrNumber }, { protocolNumber: idOrNumber.toUpperCase() }] },
+      select: protocolSelect,
+    });
+  }
+
+  private emitChange(
+    event: string,
+    protocol: { id: string; client: { id: string } } & Record<string, any>,
+    changes?: Record<string, unknown>,
+  ) {
+    const payload: ProtocolChangedEvent = {
+      protocolId: protocol.id,
+      clientId: protocol.client.id,
+      protocol,
+      changes,
+    };
+    this.events.emit(event, payload);
   }
 }

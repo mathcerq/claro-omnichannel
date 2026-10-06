@@ -33,11 +33,15 @@ async function bootstrap() {
     }),
   );
 
+  // Encerra o long polling do Telegram e a conexão com o banco ao parar a API
+  app.enableShutdownHooks();
+
   const port = process.env.PORT || 3000;
   await app.listen(port);
   console.log(`\n🚀 Claro Omnichannel API running on: http://localhost:${port}`);
   console.log(`📡 WebSocket available at: ws://localhost:${port}`);
-  console.log(`🔒 Security: JWT + TOTP 2FA + RBAC + Helmet\n`);
+  console.log(`🔒 Security: JWT + TOTP 2FA + RBAC + Helmet`);
+  console.log(`📨 Canais: WebChat (real) · Telegram (real) · Telefone (mock)\n`);
 }
 
 bootstrap();

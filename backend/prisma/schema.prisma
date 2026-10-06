@@ -25,6 +25,8 @@ model User {
   sentMessages      Message[]
   twoFactorSessions TwoFactorSession[]
   auditLogs         AuditLog[]
+  channelIdentities ChannelIdentity[]
+  channelLinkCodes  ChannelLinkCode[]
 }
 
 model Protocol {
@@ -57,11 +59,57 @@ model Message {
   metadata   String?
   createdAt  DateTime @default(now())
 
+  /// Id da mensagem no canal de origem (ex.: "<chatId>:<messageId>" no Telegram).
+  /// Garante idempotência: a mesma mensagem externa nunca entra duas vezes na timeline.
+  externalId     String?
+  /// Entrega em canal externo (mensagens de atendente): SENT | FAILED | SIMULATED
+  deliveryStatus String?
+
   protocolId String
   protocol   Protocol @relation(fields: [protocolId], references: [id])
 
   senderId String
   sender   User   @relation(fields: [senderId], references: [id])
+
+  @@unique([channel, externalId])
+  @@index([protocolId, createdAt])
+}
+
+/// Vínculo entre um usuário CLIENT e sua identidade em um canal externo
+/// (ex.: chat do Telegram). Genérico: novos canais reutilizam a mesma tabela.
+model ChannelIdentity {
+  id         String @id @default(uuid())
+  channel    String
+  /// Identificador no canal (no Telegram: chat id da conversa privada)
+  externalId String
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Protocolo em que as próximas mensagens deste canal serão registradas
+  activeProtocolId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([channel, externalId])
+  @@unique([channel, userId])
+}
+
+/// Código de vínculo de uso único, gerado pelo cliente logado no WebChat.
+/// Apenas o hash SHA-256 é persistido.
+model ChannelLinkCode {
+  id        String    @id @default(uuid())
+  channel   String
+  codeHash  String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model TwoFactorSession {

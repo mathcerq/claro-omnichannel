@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { ProtocolsService } from './protocols.service';
 import { CreateProtocolDto } from './dto/create-protocol.dto';
-import { UpdateProtocolDto } from './dto/update-protocol.dto';
+import { UpdateProtocolDto, AssignAgentDto } from './dto/update-protocol.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -52,10 +52,10 @@ export class ProtocolsController {
   @Roles('ADMIN', 'SUPERVISOR', 'AGENT')
   assignAgent(
     @Param('id') protocolId: string,
-    @Body('agentId') agentId: string,
+    @Body() dto: AssignAgentDto,
     @CurrentUser() user: any,
   ) {
-    const targetAgentId = agentId || user.id;
+    const targetAgentId = dto.agentId || user.id;
     return this.protocolsService.assignAgent(protocolId, targetAgentId);
   }
 }

@@ -1,4 +1,5 @@
-import { IsOptional, IsString, IsIn } from 'class-validator';
+import { IsOptional, IsIn, IsUUID } from 'class-validator';
+import { CHANNEL_CODES } from '../../channels/channel.types';
 
 export class UpdateProtocolDto {
   @IsOptional()
@@ -10,10 +11,13 @@ export class UpdateProtocolDto {
   priority?: string;
 
   @IsOptional()
-  @IsIn(['WHATSAPP', 'PHONE', 'WEBCHAT', 'EMAIL'])
+  @IsIn([...CHANNEL_CODES])
   currentChannel?: string;
+}
 
+export class AssignAgentDto {
+  /** Vazio = o próprio atendente logado assume */
   @IsOptional()
-  @IsString()
+  @IsUUID()
   agentId?: string;
 }
