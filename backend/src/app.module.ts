@@ -10,6 +10,7 @@ import { ProtocolsModule } from './protocols/protocols.module';
 import { MessagesModule } from './messages/messages.module';
 import { GatewayModule } from './gateway/gateway.module';
 import { ChannelsModule } from './channels/channels.module';
+import { TelegramModule } from './channels/telegram/telegram.module';
 import { PhoneMockModule } from './channels/phone-mock/phone-mock.module';
 import { validateEnv } from './config/env.validation';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
@@ -28,6 +29,7 @@ import { RolesGuard } from './common/guards/roles.guard';
     GatewayModule,
     // Canais de atendimento — cada canal é um módulo plugável
     ChannelsModule, // infraestrutura + WebChat (real)
+    TelegramModule, // Telegram (real, bot com long polling)
     PhoneMockModule, // Telefone (MOCK assumido, dados inventados)
   ],
   providers: [
