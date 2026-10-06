@@ -7,6 +7,7 @@ import Home from './pages/Home';
 import NewProtocol from './pages/NewProtocol';
 import ProtocolDetail from './pages/ProtocolDetail';
 import TotpSetup from './pages/TotpSetup';
+import TelegramConnect from './pages/TelegramConnect';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -28,6 +29,7 @@ export default function App() {
       <Route path="/new" element={<PrivateRoute><NewProtocol /></PrivateRoute>} />
       <Route path="/protocols/:id" element={<PrivateRoute><ProtocolDetail /></PrivateRoute>} />
       <Route path="/security" element={<PrivateRoute><TotpSetup /></PrivateRoute>} />
+      <Route path="/telegram" element={<PrivateRoute><TelegramConnect /></PrivateRoute>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

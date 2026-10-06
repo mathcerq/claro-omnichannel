@@ -1,15 +1,8 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Loader2, MessageSquare, Phone, Globe, Mail } from 'lucide-react';
+import { ArrowLeft, Loader2, Send } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../api/axios';
-
-const channels = [
-  { value: 'WEBCHAT', label: 'WebChat', Icon: Globe, desc: 'Chat online pelo site' },
-  { value: 'WHATSAPP', label: 'WhatsApp', Icon: MessageSquare, desc: 'Mensagem via WhatsApp' },
-  { value: 'PHONE', label: 'Telefone', Icon: Phone, desc: 'Atendimento por ligação' },
-  { value: 'EMAIL', label: 'E-mail', Icon: Mail, desc: 'Contato por e-mail' },
-];
 
 const priorities = [
   { value: 'LOW', label: 'Baixa', color: 'text-gray-500 border-gray-200 bg-gray-50' },
@@ -22,7 +15,6 @@ export default function NewProtocol() {
   const navigate = useNavigate();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [channel, setChannel] = useState('WEBCHAT');
   const [priority, setPriority] = useState('MEDIUM');
   const [loading, setLoading] = useState(false);
 
@@ -30,7 +22,7 @@ export default function NewProtocol() {
     e.preventDefault();
     setLoading(true);
     try {
-      const res = await api.post('/protocols', { title, description, channel, priority });
+      const res = await api.post('/protocols', { title, ...(description ? { description } : {}), priority });
       toast.success(`Protocolo ${res.data.protocolNumber} criado!`);
       navigate(`/protocols/${res.data.id}`);
     } catch {} finally {
@@ -61,6 +53,7 @@ export default function NewProtocol() {
               placeholder="Ex: Internet sem funcionar, cobrança incorreta..."
               required
               minLength={5}
+              maxLength={120}
             />
           </div>
 
@@ -73,28 +66,6 @@ export default function NewProtocol() {
               rows={3}
               placeholder="Descreva o problema com mais detalhes..."
             />
-          </div>
-
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">Canal de entrada</label>
-            <div className="grid grid-cols-2 gap-2">
-              {channels.map(({ value, label, Icon, desc }) => (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => setChannel(value)}
-                  className={`p-3 rounded-xl border-2 text-left transition-all ${
-                    channel === value
-                      ? 'border-claro-red bg-red-50'
-                      : 'border-gray-100 bg-white hover:border-gray-200'
-                  }`}
-                >
-                  <Icon size={20} className={channel === value ? 'text-claro-red' : 'text-gray-400'} />
-                  <p className={`text-sm font-semibold mt-1 ${channel === value ? 'text-claro-red' : 'text-gray-700'}`}>{label}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">{desc}</p>
-                </button>
-              ))}
-            </div>
           </div>
 
           <div>
@@ -114,6 +85,12 @@ export default function NewProtocol() {
               ))}
             </div>
           </div>
+
+          <p className="text-xs text-gray-400 flex items-start gap-1.5">
+            <Send size={12} className="mt-0.5 flex-shrink-0" />
+            Este chamado é aberto pelo WebChat. Você também pode abrir e acompanhar chamados pelo Telegram — o
+            número do protocolo e o histórico são os mesmos em todos os canais.
+          </p>
 
           <button type="submit" disabled={loading || !title.trim()} className="btn-primary flex items-center justify-center gap-2 mt-4">
             {loading ? <Loader2 size={18} className="animate-spin" /> : null}

@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, LogOut, Shield, RefreshCw, MessageSquare, ChevronRight, Wifi } from 'lucide-react';
+import { Plus, LogOut, Shield, RefreshCw, MessageSquare, ChevronRight, Wifi, Send, CheckCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../api/axios';
 import { useAuthStore } from '../store/auth.store';
@@ -27,9 +27,10 @@ const statusConfig: Record<string, { label: string; color: string; bg: string }>
 };
 
 const channelConfig: Record<string, { label: string; color: string }> = {
-  WHATSAPP: { label: 'WhatsApp', color: 'text-green-600' },
+  TELEGRAM: { label: 'Telegram', color: 'text-sky-600' },
   PHONE: { label: 'Telefone', color: 'text-blue-600' },
   WEBCHAT: { label: 'WebChat', color: 'text-purple-600' },
+  WHATSAPP: { label: 'WhatsApp', color: 'text-green-600' },
   EMAIL: { label: 'E-mail', color: 'text-orange-600' },
 };
 
@@ -38,6 +39,7 @@ export default function Home() {
   const { user, logout } = useAuthStore();
   const [protocols, setProtocols] = useState<Protocol[]>([]);
   const [loading, setLoading] = useState(true);
+  const [telegram, setTelegram] = useState<{ enabled: boolean; linked: boolean } | null>(null);
 
   const fetchProtocols = useCallback(async () => {
     try {
@@ -48,16 +50,23 @@ export default function Home() {
     }
   }, []);
 
+  const fetchTelegram = useCallback(() => {
+    api.get('/channels/telegram').then((r) => setTelegram(r.data)).catch(() => {});
+  }, []);
+
   useEffect(() => {
     fetchProtocols();
+    fetchTelegram();
+    // Protocolos abertos/atualizados em qualquer canal (ex.: pelo Telegram)
     const socket = getSocket();
-    socket.on('protocols_list_updated', () => fetchProtocols());
-    socket.on('new_message', () => fetchProtocols());
+    const onListUpdated = () => fetchProtocols();
+    socket.on('protocols_list_updated', onListUpdated);
+    socket.on('channel_link_updated', fetchTelegram);
     return () => {
-      socket.off('protocols_list_updated');
-      socket.off('new_message');
+      socket.off('protocols_list_updated', onListUpdated);
+      socket.off('channel_link_updated', fetchTelegram);
     };
-  }, [fetchProtocols]);
+  }, [fetchProtocols, fetchTelegram]);
 
   const handleLogout = () => {
     logout();
@@ -111,6 +120,33 @@ export default function Home() {
           <Plus size={20} />
           Abrir Novo Chamado
         </button>
+
+        {telegram?.enabled && (
+          <button
+            onClick={() => navigate('/telegram')}
+            className="card w-full p-4 mb-5 flex items-center gap-3 text-left hover:shadow-md transition-all"
+          >
+            <div className="w-10 h-10 bg-sky-50 rounded-xl flex items-center justify-center flex-shrink-0">
+              <Send size={20} className="text-sky-600" />
+            </div>
+            <div className="flex-1 min-w-0">
+              {telegram.linked ? (
+                <>
+                  <p className="font-semibold text-gray-900 flex items-center gap-1">
+                    Telegram conectado <CheckCircle size={14} className="text-emerald-500" />
+                  </p>
+                  <p className="text-xs text-gray-500">Converse por lá com o mesmo histórico</p>
+                </>
+              ) : (
+                <>
+                  <p className="font-semibold text-gray-900">Conectar Telegram</p>
+                  <p className="text-xs text-gray-500">Receba as respostas do atendente no Telegram</p>
+                </>
+              )}
+            </div>
+            <ChevronRight size={18} className="text-gray-300" />
+          </button>
+        )}
 
         <div className="flex items-center justify-between mb-3">
           <h3 className="font-semibold text-gray-900">Meus Protocolos</h3>

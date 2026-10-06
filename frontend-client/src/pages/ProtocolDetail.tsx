@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { ArrowLeft, Send, RefreshCw, MessageSquare, Phone, Globe, Mail, Wifi } from 'lucide-react';
 import api from '../api/axios';
 import { getSocket } from '../api/socket';
@@ -29,8 +29,8 @@ interface Protocol {
   messages: Message[];
 }
 
-const channelIcons: Record<string, any> = { WHATSAPP: MessageSquare, PHONE: Phone, WEBCHAT: Globe, EMAIL: Mail };
-const channelLabels: Record<string, string> = { WHATSAPP: 'WhatsApp', PHONE: 'Telefone', WEBCHAT: 'WebChat', EMAIL: 'E-mail' };
+const channelIcons: Record<string, any> = { TELEGRAM: Send, PHONE: Phone, WEBCHAT: Globe, WHATSAPP: MessageSquare, EMAIL: Mail };
+const channelLabels: Record<string, string> = { TELEGRAM: 'Telegram', PHONE: 'Telefone', WEBCHAT: 'WebChat', WHATSAPP: 'WhatsApp', EMAIL: 'E-mail' };
 
 const statusConfig: Record<string, { label: string; color: string; bg: string }> = {
   OPEN: { label: 'Aberto', color: 'text-emerald-700', bg: 'bg-emerald-50' },
@@ -64,29 +64,34 @@ export default function ProtocolDetail() {
   useEffect(() => {
     fetchProtocol();
     const socket = getSocket();
-    if (id) socket.emit('join_protocol', { protocolId: id });
+    // (Re)entra na sala do protocolo a cada conexão — inclusive após reconectar
+    const join = () => id && socket.emit('join_protocol', { protocolId: id });
+    join();
 
-    socket.on('new_message', (msg: Message) => {
+    // Mensagens de qualquer canal (Telegram, telefone, atendente) chegam aqui
+    const onNewMessage = (msg: Message) => {
+      if (msg.protocolId !== id) return;
       setProtocol((prev) => {
         if (!prev) return prev;
-        const exists = prev.messages.some(m => m.id === msg.id);
-        if (exists) return prev;
+        if (prev.messages.some((m) => m.id === msg.id)) return prev;
         return { ...prev, messages: [...prev.messages, msg] };
       });
-    });
+    };
+    const onProtocolUpdated = (proto: any) => {
+      if (proto.id === id) setProtocol((prev) => (prev ? { ...prev, ...proto } : prev));
+    };
 
-    socket.on('protocol_updated', (proto: any) => {
-      if (proto.id === id) {
-        setProtocol((prev) => prev ? { ...prev, ...proto } : prev);
-      }
-    });
+    socket.on('connect', join);
+    socket.on('new_message', onNewMessage);
+    socket.on('protocol_updated', onProtocolUpdated);
 
     return () => {
       if (id) socket.emit('leave_protocol', { protocolId: id });
-      socket.off('new_message');
-      socket.off('protocol_updated');
+      socket.off('connect', join);
+      socket.off('new_message', onNewMessage);
+      socket.off('protocol_updated', onProtocolUpdated);
     };
-  }, [id, fetchProtocol, navigate]);
+  }, [id, fetchProtocol]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -95,10 +100,14 @@ export default function ProtocolDetail() {
   const handleSend = async () => {
     if (!input.trim() || sending || !id || !protocol) return;
     setSending(true);
-    const channel = protocol.currentChannel || 'WEBCHAT';
     try {
-      const res = await api.post(`/protocols/${id}/messages`, { content: input.trim(), channel });
-      setProtocol((prev) => prev ? { ...prev, messages: [...prev.messages, res.data] } : prev);
+      // Pelo app, o canal é sempre WebChat (definido pelo servidor)
+      const res = await api.post(`/protocols/${id}/messages`, { content: input.trim() });
+      setProtocol((prev) =>
+        prev && !prev.messages.some((m) => m.id === res.data.id)
+          ? { ...prev, messages: [...prev.messages, res.data] }
+          : prev,
+      );
       setInput('');
     } catch {} finally {
       setSending(false);
@@ -139,6 +148,10 @@ export default function ProtocolDetail() {
             <p className="text-sm font-semibold text-gray-900 truncate mt-0.5">{protocol.title}</p>
           </div>
         </div>
+        <Link to="/telegram" className="flex items-center gap-1 mt-2 text-xs text-sky-600 ml-9">
+          <Send size={10} />
+          Continue esta conversa pelo Telegram — o histórico é o mesmo
+        </Link>
         {protocol.agent && (
           <div className="flex items-center gap-1 mt-2 text-xs text-gray-500 ml-9">
             <Wifi size={10} className="text-emerald-500" />
@@ -181,7 +194,7 @@ export default function ProtocolDetail() {
                     </div>
                   )}
                   <div
-                    className={`px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
+                    className={`px-4 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap break-words ${
                       isMe
                         ? 'bg-claro-red text-white rounded-br-sm'
                         : isAgent
@@ -191,8 +204,9 @@ export default function ProtocolDetail() {
                   >
                     {msg.content}
                   </div>
-                  <span className="text-xs text-gray-400 px-1">
+                  <span className="text-xs text-gray-400 px-1 flex items-center gap-1">
                     {new Date(msg.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                    <span>· via {channelLabels[msg.channel] ?? msg.channel}</span>
                   </span>
                 </div>
               </div>
