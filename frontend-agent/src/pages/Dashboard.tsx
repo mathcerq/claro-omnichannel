@@ -135,6 +135,9 @@ export default function Dashboard() {
                   {c.kind === 'MOCK' ? 'mock' : c.enabled ? 'real' : 'desligado'}
                 </span>
                 {c.botUsername && <span className="text-gray-500">@{c.botUsername}</span>}
+                <span className="text-gray-500" title="Protocolos cujo último contato foi por este canal">
+                  · {stats?.byChannel?.find((b: any) => b.currentChannel === c.code)?._count ?? 0}
+                </span>
               </span>
             );
           })}
