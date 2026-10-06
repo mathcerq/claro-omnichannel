@@ -12,6 +12,7 @@ import { JwtService } from '@nestjs/jwt';
 import { Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { PrismaService } from '../prisma/prisma.service';
+import { STAFF_ROLES, canAccessProtocol } from '../protocols/protocol-access';
 import {
   ChannelLinkEvent,
   DomainEvents,
@@ -20,7 +21,6 @@ import {
   ProtocolChangedEvent,
 } from '../events/domain-events';
 
-const STAFF_ROLES = ['AGENT', 'SUPERVISOR', 'ADMIN'];
 const STAFF_ROOM = 'staff';
 
 /**
@@ -109,15 +109,13 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return { ok: false, error: 'Requisição inválida' };
     }
 
-    // Cliente só entra na sala dos próprios protocolos
-    if (!STAFF_ROLES.includes(client.data.role)) {
-      const protocol = await this.prisma.protocol.findUnique({
-        where: { id: protocolId },
-        select: { clientId: true },
-      });
-      if (!protocol || protocol.clientId !== client.data.userId) {
-        return { ok: false, error: 'Acesso negado a este protocolo' };
-      }
+    // Mesma regra da API REST: cliente só os próprios; atendente só fila/atribuídos
+    const protocol = await this.prisma.protocol.findUnique({
+      where: { id: protocolId },
+      select: { clientId: true, agentId: true },
+    });
+    if (!protocol || !canAccessProtocol({ id: client.data.userId, role: client.data.role }, protocol)) {
+      return { ok: false, error: 'Acesso negado a este protocolo' };
     }
 
     client.join(`protocol:${protocolId}`);

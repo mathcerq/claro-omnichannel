@@ -239,6 +239,23 @@ async function main() {
     assert.equal(ack.ok, false);
   });
 
+  await step('atendente não acessa protocolo atribuído a outro atendente (REST e WebSocket)', async () => {
+    // CLR-2026-10003 (seed) está atribuído à Maria; o supervisor enxerga todos
+    const supervisorSecret = await setupStaff2FA(api, 'supervisor@claro.com.br');
+    const supervisor = await loginStaff(api, 'supervisor@claro.com.br', supervisorSecret);
+    const { data: everything } = await api('GET', '/protocols', { token: supervisor });
+    const mariaProtocol = everything.find((p) => p.protocolNumber === 'CLR-2026-10003');
+    assert.ok(mariaProtocol);
+    const { status } = await api('GET', `/protocols/${mariaProtocol.id}`, { token: agent });
+    assert.equal(status, 403);
+    const msg = await api('POST', `/protocols/${mariaProtocol.id}/messages`, { token: agent, body: { content: 'x' } });
+    assert.equal(msg.status, 403);
+    const ack = await agentWs.socket.timeout(3000).emitWithAck('join_protocol', { protocolId: mariaProtocol.id });
+    assert.equal(ack.ok, false);
+    // supervisor enxerga tudo
+    assert.equal((await api('GET', `/protocols/${mariaProtocol.id}`, { token: supervisor })).status, 200);
+  });
+
   await step('token restrito (setupToken de 2FA) não abre WebSocket', async () => {
     const { data } = await api('POST', '/auth/login', { body: { email: 'maria.atendente@claro.com.br', password: PASSWORD } });
     assert.ok(data.setupToken);

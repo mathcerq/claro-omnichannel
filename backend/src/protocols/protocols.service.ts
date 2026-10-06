@@ -13,8 +13,7 @@ import { UpdateProtocolDto } from './dto/update-protocol.dto';
 import { protocolSelect } from './protocol.select';
 import { ChannelRegistry } from '../channels/channel-registry.service';
 import { DomainEvents, ProtocolChangedEvent } from '../events/domain-events';
-
-const STAFF_ROLES = ['AGENT', 'SUPERVISOR', 'ADMIN'];
+import { STAFF_ROLES, canAccessProtocol } from './protocol-access';
 
 /** Formato: CLR-AAAA-NNNNN (único e independente do canal). */
 function generateProtocolNumber(): string {
@@ -57,6 +56,7 @@ export class ProtocolsService {
       select: protocolSelect,
     });
 
+    await this.audit('PROTOCOL_CREATED', protocol.protocolNumber, clientId, { channel });
     this.emitChange(DomainEvents.PROTOCOL_CREATED, protocol);
     return protocol;
   }
@@ -101,7 +101,7 @@ export class ProtocolsService {
 
     if (!protocol) throw new NotFoundException('Protocolo não encontrado');
 
-    if (user.role === 'CLIENT' && protocol.client.id !== user.id) {
+    if (!canAccessProtocol(user, { clientId: protocol.client.id, agentId: protocol.agent?.id ?? null })) {
       throw new ForbiddenException('Acesso negado a este protocolo');
     }
 
@@ -119,6 +119,9 @@ export class ProtocolsService {
     if (user.role === 'CLIENT') {
       throw new ForbiddenException('Clientes não podem alterar protocolos');
     }
+    if (!canAccessProtocol(user, protocol)) {
+      throw new ForbiddenException('Acesso negado a este protocolo');
+    }
 
     const data: any = { ...dto };
     if (dto.status === 'CLOSED') {
@@ -133,11 +136,12 @@ export class ProtocolsService {
       select: protocolSelect,
     });
 
+    await this.audit('PROTOCOL_UPDATED', updated.protocolNumber, user.id, dto);
     this.emitChange(DomainEvents.PROTOCOL_UPDATED, updated, { ...dto });
     return updated;
   }
 
-  async assignAgent(protocolId: string, agentId: string) {
+  async assignAgent(protocolId: string, agentId: string, actor: { id: string; role: string }) {
     const [protocol, agent] = await Promise.all([
       this.prisma.protocol.findUnique({ where: { id: protocolId } }),
       this.prisma.user.findUnique({ where: { id: agentId } }),
@@ -149,6 +153,10 @@ export class ProtocolsService {
     if (protocol.status === 'CLOSED') {
       throw new BadRequestException('Protocolo encerrado');
     }
+    // Atendente só assume/transfere protocolos da fila ou atribuídos a ele
+    if (!canAccessProtocol(actor, protocol)) {
+      throw new ForbiddenException('Acesso negado a este protocolo');
+    }
 
     const updated = await this.prisma.protocol.update({
       where: { id: protocolId },
@@ -156,6 +164,7 @@ export class ProtocolsService {
       select: protocolSelect,
     });
 
+    await this.audit('PROTOCOL_ASSIGNED', updated.protocolNumber, actor.id, { agentId });
     this.emitChange(DomainEvents.PROTOCOL_UPDATED, updated, { agentId, status: 'IN_PROGRESS' });
     return updated;
   }
@@ -194,6 +203,18 @@ export class ProtocolsService {
     return this.prisma.protocol.findFirst({
       where: { clientId, OR: [{ id: idOrNumber }, { protocolNumber: idOrNumber.toUpperCase() }] },
       select: protocolSelect,
+    });
+  }
+
+  /** Trilha de auditoria (LGPD art. 37): quem alterou o quê, sem conteúdo de mensagens. */
+  private audit(action: string, protocolNumber: string, userId: string, details?: unknown) {
+    return this.prisma.auditLog.create({
+      data: {
+        action,
+        resource: `PROTOCOL:${protocolNumber}`,
+        details: details ? JSON.stringify(details) : null,
+        userId,
+      },
     });
   }
 

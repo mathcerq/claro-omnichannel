@@ -56,6 +56,6 @@ export class ProtocolsController {
     @CurrentUser() user: any,
   ) {
     const targetAgentId = dto.agentId || user.id;
-    return this.protocolsService.assignAgent(protocolId, targetAgentId);
+    return this.protocolsService.assignAgent(protocolId, targetAgentId, user);
   }
 }

@@ -1,6 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { randomInt, randomUUID } from 'crypto';
 import { MessagesService } from '../../messages/messages.service';
+import { PrismaService } from '../../prisma/prisma.service';
+import { canAccessProtocol } from '../../protocols/protocol-access';
 
 /** Relatos fictícios usados quando o atendente não informa um resumo. */
 const FAKE_CALL_SUMMARIES = [
@@ -21,9 +23,16 @@ const FAKE_URA_OPTIONS = ['1 - Suporte técnico', '2 - Financeiro', '3 - Planos 
  */
 @Injectable()
 export class PhoneMockService {
-  constructor(private readonly messages: MessagesService) {}
+  constructor(
+    private readonly messages: MessagesService,
+    private readonly prisma: PrismaService,
+  ) {}
 
-  async simulateIncomingCall(protocolId: string, summary?: string) {
+  async simulateIncomingCall(actor: { id: string; role: string }, protocolId: string, summary?: string) {
+    const protocol = await this.prisma.protocol.findUnique({ where: { id: protocolId } });
+    if (!protocol) throw new NotFoundException('Protocolo não encontrado');
+    if (!canAccessProtocol(actor, protocol)) throw new ForbiddenException('Acesso negado a este protocolo');
+
     const callId = `MOCK-CALL-${randomUUID().slice(0, 8).toUpperCase()}`;
     const durationSec = randomInt(45, 900);
     const uraOption = FAKE_URA_OPTIONS[randomInt(FAKE_URA_OPTIONS.length)];

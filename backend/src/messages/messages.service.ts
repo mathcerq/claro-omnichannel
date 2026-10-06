@@ -6,6 +6,7 @@ import { CreateMessageDto } from './dto/create-message.dto';
 import { ChannelRegistry } from '../channels/channel-registry.service';
 import { DomainEvents, MessageCreatedEvent, ProtocolChangedEvent } from '../events/domain-events';
 import { protocolSelect } from '../protocols/protocol.select';
+import { canAccessProtocol } from '../protocols/protocol-access';
 
 const messageInclude = {
   sender: { select: { id: true, name: true, role: true } },
@@ -36,7 +37,7 @@ export class MessagesService {
   async create(protocolId: string, senderId: string, senderRole: string, dto: CreateMessageDto) {
     const protocol = await this.getWritableProtocol(protocolId);
 
-    if (senderRole === 'CLIENT' && protocol.clientId !== senderId) {
+    if (!canAccessProtocol({ id: senderId, role: senderRole }, protocol)) {
       throw new ForbiddenException('Acesso negado');
     }
 
@@ -92,7 +93,7 @@ export class MessagesService {
     const protocol = await this.prisma.protocol.findUnique({ where: { id: protocolId } });
     if (!protocol) throw new NotFoundException('Protocolo não encontrado');
 
-    if (userRole === 'CLIENT' && protocol.clientId !== userId) {
+    if (!canAccessProtocol({ id: userId, role: userRole }, protocol)) {
       throw new ForbiddenException('Acesso negado');
     }
 

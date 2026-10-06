@@ -1,6 +1,7 @@
 import { Body, Controller, Post } from '@nestjs/common';
 import { IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { PhoneMockService } from './phone-mock.service';
 
 export class SimulateCallDto {
@@ -21,7 +22,7 @@ export class PhoneMockController {
 
   @Post('mock-call')
   @Roles('ADMIN', 'SUPERVISOR', 'AGENT')
-  simulateCall(@Body() dto: SimulateCallDto) {
-    return this.phone.simulateIncomingCall(dto.protocolId, dto.summary);
+  simulateCall(@CurrentUser() user: any, @Body() dto: SimulateCallDto) {
+    return this.phone.simulateIncomingCall(user, dto.protocolId, dto.summary);
   }
 }

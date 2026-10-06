@@ -104,6 +104,12 @@ export default function ProtocolDetail() {
     if (!id) return;
     try {
       const res = await api.patch(`/protocols/${id}/assign`, { agentId });
+      // Atendente que transfere o protocolo deixa de ter acesso a ele (menor privilégio)
+      if (user?.role === 'AGENT' && agentId !== user.id) {
+        toast.success(`Protocolo transferido para ${res.data.agent?.name ?? 'outro atendente'}`);
+        navigate('/');
+        return;
+      }
       updateProtocol(id, res.data);
       toast.success('Atendente atribuído com sucesso');
     } catch {}
