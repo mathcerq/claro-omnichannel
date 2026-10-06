@@ -163,6 +163,8 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @OnEvent(DomainEvents.CHANNEL_UNLINKED)
   onChannelLinkChanged(event: ChannelLinkEvent) {
     this.server.to(`user:${event.userId}`).emit('channel_link_updated', { channel: event.channel });
+    // Painel: canais disponíveis para responder a este cliente mudaram
+    this.server.to(STAFF_ROOM).emit('client_channels_updated', { userId: event.userId, channel: event.channel });
   }
 
   getConnectedUsersCount(): number {

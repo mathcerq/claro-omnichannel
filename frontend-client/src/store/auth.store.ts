@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { disconnectSocket, reconnectSocket } from '../api/socket';
 
 interface User {
   id: string;
@@ -26,10 +27,12 @@ export const useAuthStore = create<AuthState>((set) => ({
     localStorage.setItem('accessToken', accessToken);
     localStorage.setItem('refreshToken', refreshToken);
     localStorage.setItem('user', JSON.stringify(user));
+    reconnectSocket(); // socket aberto antes do login passa a usar o novo token
     set({ user, accessToken, isAuthenticated: true });
   },
 
   logout: () => {
+    disconnectSocket();
     localStorage.removeItem('accessToken');
     localStorage.removeItem('refreshToken');
     localStorage.removeItem('user');

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, LogOut, Users, RefreshCw, Search, Wifi,
@@ -9,13 +9,15 @@ import api from '../api/axios';
 import { getSocket } from '../api/socket';
 import { useAuthStore } from '../store/auth.store';
 import { useProtocolsStore, Protocol } from '../store/protocols.store';
-import ChannelBadge from '../components/ChannelBadge';
+import ChannelBadge, { channelConfig } from '../components/ChannelBadge';
 import { StatusBadge, PriorityBadge } from '../components/StatusBadge';
 
 export default function Dashboard() {
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
-  const { protocols, stats, setProtocols, setStats, updateProtocol } = useProtocolsStore();
+  const { protocols, stats, setProtocols, setStats } = useProtocolsStore();
+  const [channels, setChannels] = useState<{ code: string; kind: string; enabled: boolean; botUsername?: string }[]>([]);
+  const refreshTimer = useRef<ReturnType<typeof setTimeout>>();
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -37,16 +39,21 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchData();
+    api.get('/channels').then((r) => setChannels(r.data)).catch(() => {});
+
+    // Qualquer mensagem/protocolo novo, em qualquer canal, atualiza a lista
+    // (com debounce para rajadas de eventos)
     const socket = getSocket();
-    socket.on('protocols_list_updated', (data) => {
-      updateProtocol(data.protocolId, data);
-    });
-    socket.on('new_message', () => fetchData());
-    return () => {
-      socket.off('protocols_list_updated');
-      socket.off('new_message');
+    const onListUpdated = () => {
+      clearTimeout(refreshTimer.current);
+      refreshTimer.current = setTimeout(fetchData, 300);
     };
-  }, [fetchData, updateProtocol]);
+    socket.on('protocols_list_updated', onListUpdated);
+    return () => {
+      clearTimeout(refreshTimer.current);
+      socket.off('protocols_list_updated', onListUpdated);
+    };
+  }, [fetchData]);
 
   const handleLogout = () => {
     logout();
@@ -109,6 +116,30 @@ export default function Dashboard() {
           </button>
         </div>
       </header>
+
+      {/* Canais */}
+      {channels.length > 0 && (
+        <div className="px-6 pt-4 flex flex-wrap items-center gap-2 text-xs">
+          <span className="text-gray-500 uppercase tracking-wider mr-1">Canais</span>
+          {channels.map((c) => {
+            const cfg = channelConfig[c.code];
+            return (
+              <span
+                key={c.code}
+                className="flex items-center gap-1.5 bg-gray-900 border border-gray-800 rounded-full px-3 py-1 text-gray-300"
+                title={c.kind === 'MOCK' ? 'Canal simulado: sem integração real, dados inventados' : 'Integração real'}
+              >
+                <span className={`w-1.5 h-1.5 rounded-full ${!c.enabled ? 'bg-gray-600' : c.kind === 'MOCK' ? 'bg-amber-400' : 'bg-emerald-400'}`} />
+                {cfg?.label ?? c.code}
+                <span className={c.kind === 'MOCK' ? 'text-amber-400' : 'text-emerald-400'}>
+                  {c.kind === 'MOCK' ? 'mock' : c.enabled ? 'real' : 'desligado'}
+                </span>
+                {c.botUsername && <span className="text-gray-500">@{c.botUsername}</span>}
+              </span>
+            );
+          })}
+        </div>
+      )}
 
       {/* Stats */}
       <div className="px-6 py-4 grid grid-cols-2 sm:grid-cols-5 gap-3">

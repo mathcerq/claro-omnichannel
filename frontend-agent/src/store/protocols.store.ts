@@ -15,6 +15,8 @@ export interface Protocol {
   agent?: { id: string; name: string; email: string } | null;
   _count?: { messages: number };
   messages?: Message[];
+  /** Canais pelos quais o atendente consegue responder a este cliente */
+  availableChannels?: string[];
 }
 
 export interface Message {
@@ -24,6 +26,9 @@ export interface Message {
   senderRole: string;
   isRead: boolean;
   createdAt: string;
+  /** Entrega em canal externo: SENT | FAILED | SIMULATED */
+  deliveryStatus?: string | null;
+  protocolId?: string;
   sender: { id: string; name: string; role: string };
 }
 
@@ -35,6 +40,7 @@ interface ProtocolsState {
   setSelectedProtocol: (protocol: Protocol | null) => void;
   setStats: (stats: any) => void;
   addMessage: (protocolId: string, message: Message) => void;
+  updateMessage: (protocolId: string, messageId: string, updates: Partial<Message>) => void;
   updateProtocol: (protocolId: string, updates: Partial<Protocol>) => void;
 }
 
@@ -47,16 +53,27 @@ export const useProtocolsStore = create<ProtocolsState>((set) => ({
   setSelectedProtocol: (protocol) => set({ selectedProtocol: protocol }),
   setStats: (stats) => set({ stats }),
 
+  // A mesma mensagem chega pela resposta REST e pelo WebSocket: deduplica por id
   addMessage: (protocolId, message) =>
-    set((state) => ({
-      selectedProtocol:
-        state.selectedProtocol?.id === protocolId
-          ? {
-              ...state.selectedProtocol,
-              messages: [...(state.selectedProtocol.messages || []), message],
-            }
-          : state.selectedProtocol,
-    })),
+    set((state) => {
+      const current = state.selectedProtocol;
+      if (current?.id !== protocolId) return {};
+      const messages = current.messages || [];
+      if (messages.some((m) => m.id === message.id)) return {};
+      return { selectedProtocol: { ...current, messages: [...messages, message] } };
+    }),
+
+  updateMessage: (protocolId, messageId, updates) =>
+    set((state) => {
+      const current = state.selectedProtocol;
+      if (current?.id !== protocolId) return {};
+      return {
+        selectedProtocol: {
+          ...current,
+          messages: (current.messages || []).map((m) => (m.id === messageId ? { ...m, ...updates } : m)),
+        },
+      };
+    }),
 
   updateProtocol: (protocolId, updates) =>
     set((state) => ({

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Send, Wifi, Phone, Globe, MessageSquare } from 'lucide-react';
+import { Send, Wifi, Phone, Globe, CheckCheck, AlertTriangle, FlaskConical } from 'lucide-react';
 import { Message } from '../store/protocols.store';
 import ChannelBadge from './ChannelBadge';
 import { useAuthStore } from '../store/auth.store';
@@ -7,19 +7,61 @@ import { useAuthStore } from '../store/auth.store';
 interface Props {
   messages: Message[];
   onSend: (content: string, channel: string) => Promise<void>;
-  currentChannel: string;
+  /** Canais pelos quais é possível responder a este cliente (vem da API) */
+  availableChannels?: string[];
   disabled?: boolean;
 }
 
 const channelOptions = [
-  { value: 'WEBCHAT', label: 'WebChat', Icon: Globe },
-  { value: 'WHATSAPP', label: 'WhatsApp', Icon: MessageSquare },
-  { value: 'PHONE', label: 'Telefone', Icon: Phone },
+  { value: 'WEBCHAT', label: 'WebChat', Icon: Globe, placeholder: 'Responder pelo WebChat...' },
+  { value: 'TELEGRAM', label: 'Telegram', Icon: Send, placeholder: 'Responder pelo Telegram do cliente...' },
+  {
+    value: 'PHONE',
+    label: 'Telefone (mock)',
+    Icon: Phone,
+    placeholder: 'Registrar anotação da ligação (canal simulado — nada é enviado)...',
+  },
 ];
 
-export default function ChatPanel({ messages, onSend, currentChannel, disabled }: Props) {
+function DeliveryInfo({ message }: { message: Message }) {
+  if (message.senderRole === 'CLIENT' || !message.deliveryStatus) {
+    if (message.senderRole !== 'CLIENT' && message.channel === 'TELEGRAM') {
+      return <span className="text-gray-500">enviando ao Telegram…</span>;
+    }
+    return null;
+  }
+  if (message.deliveryStatus === 'SENT') {
+    return (
+      <span className="flex items-center gap-1 text-sky-400">
+        <CheckCheck size={12} /> entregue no Telegram
+      </span>
+    );
+  }
+  if (message.deliveryStatus === 'SIMULATED') {
+    return (
+      <span className="flex items-center gap-1 text-gray-500">
+        <FlaskConical size={12} /> registro simulado
+      </span>
+    );
+  }
+  return (
+    <span className="flex items-center gap-1 text-amber-400">
+      <AlertTriangle size={12} /> falha na entrega
+    </span>
+  );
+}
+
+export default function ChatPanel({ messages, onSend, availableChannels, disabled }: Props) {
+  const isAvailable = (value: string) => !availableChannels || availableChannels.includes(value);
+
+  // Responde, por padrão, pelo último canal REAL em que o cliente escreveu
+  // (Telegram, se vinculado; senão WebChat). O telefone é mock: só por escolha.
+  const lastClientMessage = [...messages].reverse().find((m) => m.senderRole === 'CLIENT' && m.channel !== 'PHONE');
+  const preferredChannel =
+    lastClientMessage?.channel === 'TELEGRAM' && isAvailable('TELEGRAM') ? 'TELEGRAM' : 'WEBCHAT';
+
   const [input, setInput] = useState('');
-  const [channel, setChannel] = useState(currentChannel || 'WEBCHAT');
+  const [channel, setChannel] = useState(preferredChannel);
   const [sending, setSending] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const user = useAuthStore((s) => s.user);
@@ -29,8 +71,8 @@ export default function ChatPanel({ messages, onSend, currentChannel, disabled }
   }, [messages]);
 
   useEffect(() => {
-    setChannel(currentChannel || 'WEBCHAT');
-  }, [currentChannel]);
+    setChannel(preferredChannel);
+  }, [lastClientMessage?.id, preferredChannel]);
 
   const handleSend = async () => {
     if (!input.trim() || sending) return;
@@ -59,6 +101,7 @@ export default function ChatPanel({ messages, onSend, currentChannel, disabled }
   };
 
   let lastDate = '';
+  const selected = channelOptions.find((c) => c.value === channel);
 
   return (
     <div className="flex flex-col h-full">
@@ -90,7 +133,7 @@ export default function ChatPanel({ messages, onSend, currentChannel, disabled }
                     <ChannelBadge channel={msg.channel} />
                   </div>
                   <div
-                    className={`px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
+                    className={`px-4 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap break-words ${
                       isMine
                         ? 'bg-claro-red text-white rounded-tr-sm'
                         : isAgent
@@ -100,7 +143,10 @@ export default function ChatPanel({ messages, onSend, currentChannel, disabled }
                   >
                     {msg.content}
                   </div>
-                  <span className="text-xs text-gray-600">{formatTime(msg.createdAt)}</span>
+                  <span className="text-xs text-gray-600 flex items-center gap-2">
+                    {formatTime(msg.createdAt)}
+                    {isAgent && <DeliveryInfo message={msg} />}
+                  </span>
                 </div>
               </div>
             </div>
@@ -111,29 +157,37 @@ export default function ChatPanel({ messages, onSend, currentChannel, disabled }
 
       {!disabled && (
         <div className="p-3 border-t border-gray-800 space-y-2">
-          <div className="flex gap-2">
-            {channelOptions.map(({ value, label, Icon }) => (
-              <button
-                key={value}
-                onClick={() => setChannel(value)}
-                className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                  channel === value
-                    ? 'bg-claro-red text-white'
-                    : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
-                }`}
-              >
-                <Icon size={12} />
-                {label}
-              </button>
-            ))}
+          <div className="flex gap-2 flex-wrap">
+            {channelOptions.map(({ value, label, Icon }) => {
+              const available = isAvailable(value);
+              return (
+                <button
+                  key={value}
+                  onClick={() => available && setChannel(value)}
+                  disabled={!available}
+                  title={available ? undefined : 'O cliente não vinculou este canal'}
+                  className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                    channel === value
+                      ? 'bg-claro-red text-white'
+                      : available
+                      ? 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                      : 'bg-gray-900 text-gray-600 cursor-not-allowed line-through'
+                  }`}
+                >
+                  <Icon size={12} />
+                  {label}
+                </button>
+              );
+            })}
           </div>
           <div className="flex gap-2">
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={`Responder via ${channelOptions.find(c => c.value === channel)?.label}...`}
+              placeholder={selected?.placeholder}
               rows={2}
+              maxLength={4000}
               className="input flex-1 resize-none text-sm"
             />
             <button

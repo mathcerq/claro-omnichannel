@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, User, UserCheck, RefreshCw, CheckCircle, Clock, XCircle, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, User, UserCheck, RefreshCw, CheckCircle, Clock, XCircle, AlertTriangle, Radio, Phone, Send, Globe } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../api/axios';
 import { getSocket } from '../api/socket';
@@ -14,7 +14,8 @@ export default function ProtocolDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
-  const { selectedProtocol, setSelectedProtocol, addMessage, updateProtocol } = useProtocolsStore();
+  const { selectedProtocol, setSelectedProtocol, addMessage, updateMessage, updateProtocol } = useProtocolsStore();
+  const [simulatingCall, setSimulatingCall] = useState(false);
   const [loading, setLoading] = useState(true);
   const [agents, setAgents] = useState<any[]>([]);
 
@@ -35,32 +36,59 @@ export default function ProtocolDetail() {
     api.get('/users/agents').then((r) => setAgents(r.data)).catch(() => {});
 
     const socket = getSocket();
-    if (id) socket.emit('join_protocol', { protocolId: id });
+    // (Re)entra na sala do protocolo a cada conexão — inclusive após reconectar
+    const join = () => id && socket.emit('join_protocol', { protocolId: id });
+    join();
 
-    socket.on('new_message', (msg: any) => {
-      const msgProtocolId = msg.protocolId || msg.protocol?.id;
-      addMessage(msgProtocolId || id!, msg as Message);
-    });
-
-    socket.on('protocol_updated', (proto: Protocol) => {
+    const onNewMessage = (msg: Message) => {
+      if (msg.protocolId === id) addMessage(id!, msg);
+    };
+    const onMessageUpdated = (patch: { id: string; protocolId: string; deliveryStatus: string }) => {
+      if (patch.protocolId === id) updateMessage(id!, patch.id, { deliveryStatus: patch.deliveryStatus });
+    };
+    const onProtocolUpdated = (proto: Protocol) => {
       if (proto.id === id) updateProtocol(id!, proto);
-    });
+    };
+    // Cliente vinculou/desvinculou o Telegram: atualiza os canais disponíveis
+    const onClientChannels = (data: { userId: string }) => {
+      if (data.userId === useProtocolsStore.getState().selectedProtocol?.client.id) fetchProtocol();
+    };
+
+    socket.on('connect', join);
+    socket.on('new_message', onNewMessage);
+    socket.on('message_updated', onMessageUpdated);
+    socket.on('protocol_updated', onProtocolUpdated);
+    socket.on('client_channels_updated', onClientChannels);
 
     return () => {
       if (id) socket.emit('leave_protocol', { protocolId: id });
-      socket.off('new_message');
-      socket.off('protocol_updated');
+      socket.off('connect', join);
+      socket.off('new_message', onNewMessage);
+      socket.off('message_updated', onMessageUpdated);
+      socket.off('protocol_updated', onProtocolUpdated);
+      socket.off('client_channels_updated', onClientChannels);
     };
-  }, [id, fetchProtocol, addMessage, updateProtocol, navigate]);
+  }, [id, fetchProtocol, addMessage, updateMessage, updateProtocol]);
 
   const handleSendMessage = async (content: string, channel: string) => {
     if (!id) return;
     try {
       const res = await api.post(`/protocols/${id}/messages`, { content, channel });
       addMessage(id, res.data);
-      const socket = getSocket();
-      socket.emit('new_message', { ...res.data, protocolId: id });
     } catch {}
+  };
+
+  // ⚠️ Canal telefone é MOCK: gera uma "ligação recebida" com dados inventados
+  const handleSimulateCall = async () => {
+    if (!id) return;
+    setSimulatingCall(true);
+    try {
+      const res = await api.post('/channels/phone/mock-call', { protocolId: id });
+      addMessage(id, res.data);
+      toast.success('Ligação simulada registrada na timeline');
+    } catch {} finally {
+      setSimulatingCall(false);
+    }
   };
 
   const handleStatusChange = async (status: string) => {
@@ -117,7 +145,7 @@ export default function ProtocolDetail() {
           <ChatPanel
             messages={p.messages || []}
             onSend={handleSendMessage}
-            currentChannel={p.currentChannel}
+            availableChannels={p.availableChannels}
             disabled={p.status === 'CLOSED'}
           />
         </div>
@@ -135,6 +163,41 @@ export default function ProtocolDetail() {
                 <p className="font-semibold text-white">{p.client.name}</p>
                 <p className="text-gray-400 text-xs mt-0.5">{p.client.email}</p>
                 {p.client.phone && <p className="text-gray-400 text-xs">{p.client.phone}</p>}
+              </div>
+            </div>
+
+            {/* Channels */}
+            <div>
+              <h3 className="text-xs uppercase tracking-wider text-gray-400 mb-2 flex items-center gap-1.5">
+                <Radio size={12} />
+                Canais do cliente
+              </h3>
+              <div className="card p-3 text-xs space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 text-gray-300"><Globe size={12} /> WebChat</span>
+                  <span className="text-emerald-400">disponível</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 text-gray-300"><Send size={12} /> Telegram</span>
+                  {p.availableChannels?.includes('TELEGRAM') ? (
+                    <span className="text-emerald-400">vinculado</span>
+                  ) : (
+                    <span className="text-gray-500">não vinculado</span>
+                  )}
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 text-gray-300"><Phone size={12} /> Telefone</span>
+                  <span className="text-amber-400" title="Sem integração com telefonia: dados inventados">simulado (mock)</span>
+                </div>
+                {p.status !== 'CLOSED' && (
+                  <button
+                    onClick={handleSimulateCall}
+                    disabled={simulatingCall}
+                    className="w-full mt-1 flex items-center justify-center gap-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+                  >
+                    <Phone size={12} /> Simular ligação recebida
+                  </button>
+                )}
               </div>
             </div>
 
