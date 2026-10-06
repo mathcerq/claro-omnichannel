@@ -12,151 +12,46 @@
  *
  * Uso: npm run test:e2e:telegram   (na raiz; não precisa de servidores rodando)
  */
-import { spawn, execSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
-import { existsSync, rmSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import path from 'node:path';
 import assert from 'node:assert/strict';
-import { createRequire } from 'node:module';
-import { io } from 'socket.io-client';
-import { startFakeTelegram } from './fake-telegram-server.mjs';
+import {
+  PASSWORD,
+  sleep,
+  waitFor,
+  createStepper,
+  startTestBackend,
+  loginClient,
+  setupStaff2FA,
+  loginStaff,
+  connectSocket,
+} from './helpers.mjs';
 
-const require = createRequire(import.meta.url);
-const { authenticator } = require('otplib');
-
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const BACKEND = path.join(ROOT, 'backend');
-const PORT = 3100;
-const API = `http://localhost:${PORT}`;
-const FAKE_TOKEN = `e2e-${randomBytes(8).toString('hex')}`;
 const CHAT_ID = '777000111';
-const PASSWORD = 'Claro@2024';
-
-// ── utilitários ────────────────────────────────────────────────────────────────
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-async function waitFor(fn, { timeout = 8000, interval = 100, label = 'condição' } = {}) {
-  const start = Date.now();
-  let last;
-  while (Date.now() - start < timeout) {
-    try {
-      last = await fn();
-      if (last) return last;
-    } catch (err) {
-      last = err;
-    }
-    await sleep(interval);
-  }
-  throw new Error(`Timeout esperando ${label}${last instanceof Error ? `: ${last.message}` : ''}`);
-}
-
-async function api(method, url, { token, body } = {}) {
-  const res = await fetch(`${API}${url}`, {
-    method,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const data = await res.json().catch(() => null);
-  return { status: res.status, data };
-}
-
-let passed = 0;
-async function step(name, fn) {
-  process.stdout.write(`  • ${name} ... `);
-  await fn();
-  passed++;
-  console.log('✅');
-}
-
-async function loginClient(email) {
-  const { data } = await api('POST', '/auth/login', { body: { email, password: PASSWORD } });
-  assert.ok(data.accessToken, `login de ${email} falhou`);
-  return data.accessToken;
-}
-
-/** Atendente: configura o 2FA obrigatório (se necessário) e faz login com TOTP. */
-async function loginStaff(email) {
-  let { data } = await api('POST', '/auth/login', { body: { email, password: PASSWORD } });
-  let secret;
-  if (data.requiresTotpSetup) {
-    const setup = await api('GET', '/auth/totp/setup', { token: data.setupToken });
-    secret = setup.data.secret;
-    await api('POST', '/auth/totp/enable', { token: data.setupToken, body: { code: authenticator.generate(secret) } });
-    ({ data } = await api('POST', '/auth/login', { body: { email, password: PASSWORD } }));
-  }
-  assert.ok(data.requiresOtp, '2FA deveria ser exigido');
-  const verified = await api('POST', '/auth/verify-otp', {
-    body: { tempToken: data.tempToken, code: authenticator.generate(secret) },
-  });
-  assert.ok(verified.data.accessToken, 'verify-otp falhou');
-  return { token: verified.data.accessToken, setupSecret: secret };
-}
-
-function connectSocket(token) {
-  return new Promise((resolve, reject) => {
-    const socket = io(API, { auth: { token }, transports: ['websocket'], reconnection: false });
-    const events = [];
-    socket.onAny((event, payload) => events.push({ event, payload }));
-    socket.on('connected', () => resolve({ socket, events }));
-    socket.on('connect_error', reject);
-    setTimeout(() => reject(new Error('socket não conectou')), 5000);
-  });
-}
+const stepper = createStepper();
+const step = stepper.step.bind(stepper);
 
 const lastSent = (fake) => fake.sentTo(CHAT_ID).at(-1)?.text ?? '';
 
 // ── execução ──────────────────────────────────────────────────────────────────
-let backend;
-let fake;
+let env;
 const sockets = [];
-const DB_FILE = path.join(BACKEND, 'prisma', 'e2e.db');
 
 async function main() {
   console.log('\n╔══════════════════════════════════════════════════════╗');
   console.log('║  E2E — Canal Telegram (Bot API fake + backend real)  ║');
   console.log('╚══════════════════════════════════════════════════════╝\n');
 
-  fake = await startFakeTelegram({ token: FAKE_TOKEN });
-
-  const env = {
-    ...process.env,
-    PORT: String(PORT),
-    DATABASE_URL: 'file:./e2e.db',
-    JWT_SECRET: randomBytes(32).toString('hex'),
-    JWT_REFRESH_SECRET: randomBytes(32).toString('hex'),
-    TOTP_ENCRYPTION_KEY: randomBytes(16).toString('hex'),
-    TELEGRAM_BOT_TOKEN: FAKE_TOKEN, // nunca o token real nos testes
-    TELEGRAM_API_BASE: fake.baseUrl,
-  };
-
-  console.log('Preparando banco isolado (prisma/e2e.db) e build...');
-  execSync('npx prisma migrate reset --force --skip-generate', { cwd: BACKEND, env, stdio: 'ignore' });
-  if (!existsSync(path.join(BACKEND, 'dist', 'main.js')) || process.env.E2E_BUILD !== '0') {
-    execSync('npm run build', { cwd: BACKEND, stdio: 'ignore', shell: true });
-  }
-
-  backend = spawn(process.execPath, ['dist/main.js'], { cwd: BACKEND, env, stdio: ['ignore', 'pipe', 'pipe'] });
-  let backendLog = '';
-  backend.stdout.on('data', (d) => (backendLog += d));
-  backend.stderr.on('data', (d) => (backendLog += d));
-  backend.on('exit', (code) => {
-    if (code && code !== 0) console.error(`\nBackend saiu com código ${code}\n${backendLog.slice(-2000)}`);
-  });
-
-  await waitFor(() => fetch(`${API}/channels`).then((r) => r.status === 401), { timeout: 30000, label: 'backend subir' });
-  await waitFor(() => backendLog.includes('long polling iniciado'), { timeout: 10000, label: 'long polling' });
+  console.log('Preparando backend isolado (porta 3100, banco prisma/e2e.db)...');
+  env = await startTestBackend({ port: 3100 });
+  const { api, fake, url } = env;
   console.log('Backend de teste no ar.\n');
 
   // ── Preparação ──
-  const carlos = await loginClient('carlos.cliente@email.com');
-  const fernanda = await loginClient('fernanda.cliente@email.com');
-  const { token: agent } = await loginStaff('joao.atendente@claro.com.br');
-  const agentWs = await connectSocket(agent);
-  const carlosWs = await connectSocket(carlos);
+  const carlos = await loginClient(api, 'carlos.cliente@email.com');
+  const fernanda = await loginClient(api, 'fernanda.cliente@email.com');
+  const agentSecret = await setupStaff2FA(api, 'joao.atendente@claro.com.br');
+  const agent = await loginStaff(api, 'joao.atendente@claro.com.br', agentSecret);
+  const agentWs = await connectSocket(url, agent);
+  const carlosWs = await connectSocket(url, carlos);
   sockets.push(agentWs.socket, carlosWs.socket);
 
   console.log('[Canais]');
@@ -347,7 +242,7 @@ async function main() {
   await step('token restrito (setupToken de 2FA) não abre WebSocket', async () => {
     const { data } = await api('POST', '/auth/login', { body: { email: 'maria.atendente@claro.com.br', password: PASSWORD } });
     assert.ok(data.setupToken);
-    await assert.rejects(connectSocket(data.setupToken));
+    await assert.rejects(connectSocket(url, data.setupToken));
   });
 
   await step('cadastro público não aceita perfil privilegiado', async () => {
@@ -370,20 +265,15 @@ async function main() {
   });
 
   await step('o token do bot nunca aparece nos logs do backend', async () => {
-    assert.ok(!backendLog.includes(FAKE_TOKEN));
+    assert.ok(!env.log.includes(env.fakeToken));
   });
 
-  console.log(`\n✅ ${passed} verificações passaram.\n`);
+  console.log(`\n✅ ${stepper.passed} verificações passaram.\n`);
 }
 
 async function cleanup() {
   sockets.forEach((s) => s.disconnect());
-  if (backend && backend.exitCode === null) {
-    backend.kill();
-    await new Promise((r) => backend.once('exit', r));
-  }
-  await fake?.close();
-  for (const f of [DB_FILE, `${DB_FILE}-journal`]) if (existsSync(f)) rmSync(f, { force: true });
+  await env?.stop();
 }
 
 main()
