@@ -16,6 +16,8 @@ model User {
   role         String   @default("CLIENT")
   totpSecret   String?
   totpEnabled  Boolean  @default(false)
+  /// Último passo TOTP (janela de 30s) aceito no login — impede reuso do mesmo código
+  totpLastUsedStep Int?
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt

@@ -12,6 +12,9 @@ import * as QRCode from 'qrcode';
 import * as CryptoJS from 'crypto-js';
 import { RegisterDto } from './dto/register.dto';
 
+/** Janela TOTP padrão do otplib/Google Authenticator */
+const TOTP_STEP_SECONDS = 30;
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -131,14 +134,27 @@ export class AuthService {
     }
 
     const secret = this.decryptSecret(user.totpSecret);
-    const isValid = authenticator.verify({ token: code, secret });
+    const delta = authenticator.checkDelta(code, secret);
 
-    if (!isValid) {
+    // Anti-replay (RFC 6238 §5.2): cada código vale uma única vez. O passo
+    // usado é gravado de forma condicional — duas requisições simultâneas com
+    // o mesmo código não passam juntas.
+    const step = delta === null ? null : Math.floor(Date.now() / 1000 / TOTP_STEP_SECONDS) + delta;
+    const accepted =
+      step !== null &&
+      (
+        await this.prisma.user.updateMany({
+          where: { id: user.id, OR: [{ totpLastUsedStep: null }, { totpLastUsedStep: { lt: step } }] },
+          data: { totpLastUsedStep: step },
+        })
+      ).count === 1;
+
+    if (!accepted) {
       await this.prisma.auditLog.create({
         data: {
           action: 'LOGIN_2FA_FAILED',
           resource: 'AUTH',
-          details: `Invalid TOTP code for user ${user.email}`,
+          details: `Invalid or reused TOTP code for user ${user.email}`,
           ipAddress: ip,
           userId: user.id,
         },

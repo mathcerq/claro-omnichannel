@@ -23,6 +23,7 @@ import {
   setupStaff2FA,
   loginStaff,
   connectSocket,
+  authenticator,
 } from './helpers.mjs';
 
 const CHAT_ID = '777000111';
@@ -260,6 +261,19 @@ async function main() {
     const { data } = await api('POST', '/auth/login', { body: { email: 'maria.atendente@claro.com.br', password: PASSWORD } });
     assert.ok(data.setupToken);
     await assert.rejects(connectSocket(url, data.setupToken));
+  });
+
+  await step('código TOTP não pode ser reutilizado (anti-replay)', async () => {
+    const login = async () =>
+      (await api('POST', '/auth/login', { body: { email: 'joao.atendente@claro.com.br', password: PASSWORD } })).data;
+    const first = await login();
+    const code = authenticator.generate(agentSecret);
+    const ok = await api('POST', '/auth/verify-otp', { body: { tempToken: first.tempToken, code } });
+    // o código pode coincidir com o usado no login inicial do teste (mesma janela de 30s)
+    assert.ok([201, 401].includes(ok.status));
+    const second = await login();
+    const replay = await api('POST', '/auth/verify-otp', { body: { tempToken: second.tempToken, code } });
+    assert.equal(replay.status, 401);
   });
 
   await step('cadastro público não aceita perfil privilegiado', async () => {
