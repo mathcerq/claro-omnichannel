@@ -54,7 +54,7 @@ export class AuthService {
         email: dto.email,
         passwordHash,
         phone: dto.phone,
-        role: dto.role || 'CLIENT',
+        role: 'CLIENT',
       },
       select: { id: true, name: true, email: true, role: true, createdAt: true },
     });

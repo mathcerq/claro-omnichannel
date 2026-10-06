@@ -16,7 +16,7 @@ export default function Register() {
     e.preventDefault();
     setLoading(true);
     try {
-      await api.post('/auth/register', { name, email, password, phone, role: 'CLIENT' });
+      await api.post('/auth/register', { name, email, password, ...(phone ? { phone } : {}) });
       toast.success('Conta criada! Faça login para continuar.');
       navigate('/login');
     } catch {} finally {

@@ -1,8 +1,12 @@
-import { IsEmail, IsString, MinLength, IsOptional, IsIn } from 'class-validator';
+import { IsEmail, IsString, MinLength, MaxLength, IsOptional } from 'class-validator';
+
+// Cadastro público cria SEMPRE um CLIENT. Perfis privilegiados são provisionados
+// apenas pelo seed/administração — o campo `role` é rejeitado (forbidNonWhitelisted).
 
 export class RegisterDto {
   @IsString()
   @MinLength(2, { message: 'Nome deve ter no mínimo 2 caracteres' })
+  @MaxLength(100)
   name: string;
 
   @IsEmail({}, { message: 'E-mail inválido' })
@@ -14,9 +18,6 @@ export class RegisterDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(20)
   phone?: string;
-
-  @IsOptional()
-  @IsIn(['CLIENT', 'AGENT', 'SUPERVISOR', 'ADMIN'])
-  role?: string;
 }
