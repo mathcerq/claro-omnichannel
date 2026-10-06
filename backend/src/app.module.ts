@@ -8,12 +8,13 @@ import { UsersModule } from './users/users.module';
 import { ProtocolsModule } from './protocols/protocols.module';
 import { MessagesModule } from './messages/messages.module';
 import { GatewayModule } from './gateway/gateway.module';
+import { validateEnv } from './config/env.validation';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 120 }]),
     PrismaModule,
     AuthModule,

@@ -1,11 +1,23 @@
 node_modules/
 dist/
+
+# Variáveis de ambiente (segredos) — em qualquer pasta. Só o .env.example é versionado.
 .env
+.env.*
+!.env.example
+
+# Bancos locais
 *.db
 *.db-journal
 *.sqlite
+
 .DS_Store
 Thumbs.db
 *.log
 .vite/
 coverage/
+*.tsbuildinfo
+
+# Artefatos de teste
+test-results/
+playwright-report/

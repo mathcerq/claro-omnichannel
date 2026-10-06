@@ -20,12 +20,12 @@ export class AuthService {
   ) {}
 
   private encryptSecret(secret: string): string {
-    const key = process.env.TOTP_ENCRYPTION_KEY || 'ClaroOmni2024AES256KeyChange1234';
+    const key = process.env.TOTP_ENCRYPTION_KEY;
     return CryptoJS.AES.encrypt(secret, key).toString();
   }
 
   private decryptSecret(encrypted: string): string {
-    const key = process.env.TOTP_ENCRYPTION_KEY || 'ClaroOmni2024AES256KeyChange1234';
+    const key = process.env.TOTP_ENCRYPTION_KEY;
     const bytes = CryptoJS.AES.decrypt(encrypted, key);
     return bytes.toString(CryptoJS.enc.Utf8);
   }
