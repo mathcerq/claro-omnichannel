@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Shield, Loader2, CheckCircle, Smartphone } from 'lucide-react';
+import { ArrowLeft, Shield, Loader2, CheckCircle, Smartphone, Download } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import toast from 'react-hot-toast';
 import api from '../api/axios';
@@ -35,6 +35,24 @@ export default function TotpSetup() {
       setCode('');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const [exporting, setExporting] = useState(false);
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const res = await api.get('/users/me/data');
+      const blob = new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `meus-dados-claro-${new Date().toISOString().slice(0, 10)}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+      toast.success('Arquivo gerado');
+    } catch {} finally {
+      setExporting(false);
     }
   };
 
@@ -142,6 +160,18 @@ export default function TotpSetup() {
             </button>
           </div>
         )}
+
+        <div className="mt-8 pt-5 border-t border-gray-100">
+          <h3 className="font-semibold text-gray-900 text-sm">Seus dados (LGPD)</h3>
+          <p className="text-xs text-gray-500 mt-1">
+            Baixe uma cópia de tudo o que guardamos sobre você: cadastro, protocolos, mensagens de todos os canais e
+            registros de acesso.
+          </p>
+          <button onClick={handleExport} disabled={exporting} className="btn-secondary mt-3 flex items-center justify-center gap-2">
+            {exporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+            Baixar meus dados
+          </button>
+        </div>
       </div>
     </div>
   );

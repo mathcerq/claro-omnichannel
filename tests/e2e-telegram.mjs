@@ -288,6 +288,16 @@ async function main() {
     await waitFor(() => fake.sentTo('-100123').at(-1)?.text.includes('conversa privada'), { label: 'recusa grupo' });
   });
 
+  await step('titular exporta seus dados (todos os canais, sem segredos)', async () => {
+    const { status, data } = await api('GET', '/users/me/data', { token: carlos });
+    assert.equal(status, 200);
+    const raw = JSON.stringify(data);
+    assert.ok(!raw.includes('passwordHash') && !raw.includes('totpSecret'));
+    const channels = new Set(data.data.clientProtocols.flatMap((p) => p.messages.map((m) => m.channel)));
+    assert.ok(channels.has('TELEGRAM') && channels.has('WEBCHAT') && channels.has('PHONE'));
+    assert.equal(data.data.channelIdentities[0].channel, 'TELEGRAM');
+  });
+
   await step('/desvincular remove o vínculo (direito do titular)', async () => {
     fake.pushText(CHAT_ID, '/desvincular');
     await waitFor(() => lastSent(fake).includes('desvinculado'), { label: 'desvínculo' });
