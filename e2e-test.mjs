@@ -1,23 +1,46 @@
 /**
- * Teste E2E completo do fluxo 2FA
- * Fase 1: Ativa 2FA para joao.atendente via API
- * Fase 2: Playwright — login no browser com código TOTP real
+ * Teste E2E do fluxo 2FA obrigatório (contra os servidores de desenvolvimento)
+ * Fase 1: ativa o 2FA do joao.atendente via API (se ainda não estiver ativo)
+ * Fase 2: Playwright — login no navegador com código TOTP real
+ *
+ * Pré-requisito: backend (:3000) e painel do atendente (:5173) rodando.
+ * Uso: npm run test:e2e:2fa            (headless)
+ *      HEADED=1 npm run test:e2e:2fa   (mostra o navegador)
+ *
+ * Segurança: tokens e segredos nunca são impressos por inteiro.
  */
 
 import { chromium } from 'playwright';
 import { createRequire } from 'module';
+import { mkdirSync, readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import path from 'path';
+
 const require = createRequire(import.meta.url);
 const { authenticator } = require('otplib');
 const CryptoJS = require('crypto-js');
 
-const BASE = 'http://localhost:3000';
-const AGENT_URL = 'http://localhost:5173';
+const ROOT = path.dirname(fileURLToPath(import.meta.url));
+const BASE = process.env.API_URL || 'http://localhost:3000';
+const AGENT_URL = process.env.AGENT_URL || 'http://localhost:5173';
 const EMAIL = 'joao.atendente@claro.com.br';
 const PASSWORD = 'Claro@2024';
-const ENCRYPTION_KEY = 'ClaroOmni2024AES256KeyChange1234';
+const SHOTS = path.join(ROOT, 'test-results', '2fa');
 
-async function apiPost(path, body, token) {
-  const res = await fetch(`${BASE}${path}`, {
+const mask = (value) => (value ? `${String(value).slice(0, 6)}…(${String(value).length} chars)` : '—');
+
+/** Lê variáveis do backend/.env (para descriptografar o segredo TOTP já salvo) */
+function backendEnv() {
+  const env = {};
+  for (const line of readFileSync(path.join(ROOT, 'backend', '.env'), 'utf8').split(/\r?\n/)) {
+    const m = /^\s*([A-Z_]+)\s*=\s*"?(.*?)"?\s*$/.exec(line);
+    if (m) env[m[1]] = m[2];
+  }
+  return env;
+}
+
+async function apiPost(urlPath, body, token) {
+  const res = await fetch(`${BASE}${urlPath}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -28,8 +51,8 @@ async function apiPost(path, body, token) {
   return res.json();
 }
 
-async function apiGet(path, token) {
-  const res = await fetch(`${BASE}${path}`, {
+async function apiGet(urlPath, token) {
+  const res = await fetch(`${BASE}${urlPath}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   return res.json();
@@ -41,45 +64,48 @@ async function setup2FA() {
   console.log('║  FASE 1 — Ativando 2FA via API                       ║');
   console.log('╚══════════════════════════════════════════════════════╝\n');
 
-  // 1. Login → obter setupToken (2FA obrigatório ainda não configurado)
   const loginRes = await apiPost('/auth/login', { email: EMAIL, password: PASSWORD });
 
   if (!loginRes.requiresTotpSetup) {
     if (loginRes.requiresOtp) {
       console.log('ℹ  2FA já estava ativo. Pulando fase de setup.\n');
-      return null; // já configurado
+      return null;
     }
-    console.error('Erro inesperado no login:', loginRes);
-    process.exit(1);
+    throw new Error(`Resposta inesperada no login: ${JSON.stringify(loginRes)}`);
   }
 
   const { setupToken } = loginRes;
-  console.log(`✅ setupToken recebido (10 min): ${setupToken.slice(0, 40)}...`);
+  console.log(`✅ setupToken recebido (10 min): ${mask(setupToken)}`);
   console.log(`📋 Mensagem do servidor: "${loginRes.message}"\n`);
 
-  // 2. Gerar segredo TOTP
-  const setupRes = await apiGet('/auth/totp/setup', setupToken);
-  const { secret } = setupRes;
-  console.log(`🔑 Secret TOTP gerado: ${secret}`);
-  console.log(`🔒 (Armazenado no banco como AES-256: ClaroOmni2024...)\n`);
+  const { secret } = await apiGet('/auth/totp/setup', setupToken);
+  console.log(`🔑 Secret TOTP gerado: ${mask(secret)} (armazenado no banco cifrado com AES)`);
 
-  // 3. Gerar código TOTP real com otplib
   const totpCode = authenticator.generate(secret);
-  console.log(`📱 Código TOTP gerado por otplib: ${totpCode}`);
-
-  // 4. Ativar 2FA
   const enableRes = await apiPost('/auth/totp/enable', { code: totpCode }, setupToken);
-  console.log(`\n✅ ${enableRes.message}`);
+  if (!enableRes.message?.includes('ativado')) throw new Error(`Falha ao ativar 2FA: ${JSON.stringify(enableRes)}`);
+  console.log(`✅ ${enableRes.message}`);
 
-  // 5. Tentar acessar rota protegida com setupToken (deve ser bloqueado)
-  console.log('\n[Prova que setupToken é restrito após ativar 2FA]');
-  const blockedRes = await fetch(`${BASE}/protocols`, {
-    headers: { Authorization: `Bearer ${setupToken}` },
-  });
+  console.log('\n[setupToken é restrito a /auth/totp/*]');
+  const blockedRes = await fetch(`${BASE}/protocols`, { headers: { Authorization: `Bearer ${setupToken}` } });
   const blockedBody = await blockedRes.json();
   console.log(`  GET /protocols com setupToken → ${blockedRes.status} "${blockedBody.message}"`);
+  if (blockedRes.status !== 403) throw new Error('setupToken deveria ser bloqueado (403)');
 
   return secret;
+}
+
+/** 2FA já ativo: recupera o segredo do banco local (somente ambiente de desenvolvimento). */
+async function secretFromDatabase() {
+  const env = backendEnv();
+  const requireBackend = createRequire(path.join(ROOT, 'backend', 'package.json'));
+  const { PrismaClient } = requireBackend('@prisma/client');
+  const dbUrl = env.DATABASE_URL.replace('file:./', `file:${path.join(ROOT, 'backend', 'prisma')}/`);
+  const prisma = new PrismaClient({ datasources: { db: { url: dbUrl } } });
+  const user = await prisma.user.findUnique({ where: { email: EMAIL } });
+  await prisma.$disconnect();
+  if (!user?.totpSecret) throw new Error('Não foi possível recuperar o secret do banco.');
+  return CryptoJS.AES.decrypt(user.totpSecret, env.TOTP_ENCRYPTION_KEY).toString(CryptoJS.enc.Utf8);
 }
 
 // ─── FASE 2: Login no browser com Playwright ─────────────────────────────────
@@ -88,101 +114,56 @@ async function browserTest(secret) {
   console.log('║  FASE 2 — Login completo no Browser (Playwright)     ║');
   console.log('╚══════════════════════════════════════════════════════╝\n');
 
+  mkdirSync(SHOTS, { recursive: true });
+  const headed = !!process.env.HEADED;
   const browser = await chromium.launch({
-    channel: 'chrome',
-    headless: false,
-    slowMo: 600,
-    args: ['--start-maximized'],
+    channel: process.env.PW_CHANNEL || 'chrome',
+    headless: !headed,
+    slowMo: headed ? 400 : 0,
   });
-
-  const context = await browser.newContext({ viewport: null });
-  const page = await context.newPage();
+  const page = await (await browser.newContext({ viewport: { width: 1400, height: 900 } })).newPage();
 
   try {
-    // ── Passo 1: Abrir painel do atendente ─────────────────────────────────
-    console.log('🌐 Abrindo http://localhost:5173 ...');
+    console.log(`🌐 Abrindo ${AGENT_URL} ...`);
     await page.goto(AGENT_URL);
     await page.waitForLoadState('networkidle');
-    console.log('  Página carregada: "Claro Omnichannel — Painel do Atendente"');
 
-    // ── Passo 2: Preencher credenciais ─────────────────────────────────────
-    console.log('\n📝 Preenchendo credenciais...');
+    console.log('📝 Preenchendo credenciais...');
     await page.fill('input[type="email"]', EMAIL);
     await page.fill('input[type="password"]', PASSWORD);
-    console.log(`  E-mail  : ${EMAIL}`);
-    console.log(`  Senha   : ${'•'.repeat(PASSWORD.length)}`);
-
     await page.click('button[type="submit"]');
-    await page.waitForTimeout(1500);
 
-    // ── Passo 3: Backend retorna requiresOtp:true → tela de OTP ───────────
     const otpInput = page.locator('input[placeholder="000000"]');
     await otpInput.waitFor({ timeout: 5000 });
-    console.log('\n🔐 Tela de verificação 2FA exibida!');
+    console.log('🔐 Tela de verificação 2FA exibida!');
 
-    // Gerar código TOTP em tempo real
-    console.log(`🔑 Secret usado para gerar código: "${secret}" (length: ${secret.length})`);
-    const liveCode = authenticator.generate(secret);
-    console.log(`📱 Código TOTP gerado agora: ${liveCode} (válido ~30s)`);
-
-    // ── Passo 4: Digitar o código TOTP ─────────────────────────────────────
-    await otpInput.fill(liveCode);
-    console.log('  Código inserido no campo...');
-
-    // Capturar resposta da API verify-otp para diagnóstico
-    const verifyPromise = page.waitForResponse(
-      r => r.url().includes('/auth/verify-otp'),
-      { timeout: 10000 },
-    );
-
+    await otpInput.fill(authenticator.generate(secret));
+    const verifyPromise = page.waitForResponse((r) => r.url().includes('/auth/verify-otp'), { timeout: 10000 });
     await page.click('button[type="submit"]');
-
     const verifyResp = await verifyPromise;
-    const verifyBody = await verifyResp.json().catch(() => ({}));
-    console.log(`📡 Resposta verify-otp: HTTP ${verifyResp.status()} → ${JSON.stringify(verifyBody)}`);
-
-    if (verifyResp.status() !== 200 && verifyResp.status() !== 201) {
-      throw new Error(`OTP rejeitado pelo backend: ${JSON.stringify(verifyBody)}`);
+    console.log(`📡 verify-otp → HTTP ${verifyResp.status()}`);
+    if (![200, 201].includes(verifyResp.status())) {
+      throw new Error(`OTP rejeitado pelo backend: ${JSON.stringify(await verifyResp.json().catch(() => ({})))}`);
     }
 
-    // ── Passo 5: Aguardar dashboard ────────────────────────────────────────
-    await page.waitForURL('http://localhost:5173/', { timeout: 15000 });
-    await page.waitForLoadState('networkidle');
+    await page.waitForURL(`${AGENT_URL}/`, { timeout: 15000 });
+    await page.locator('table tbody tr').first().waitFor({ timeout: 10000 });
     console.log('\n✅ AUTENTICAÇÃO COMPLETA! Dashboard carregado.');
-
-    // ── Passo 6: Verificar conteúdo do dashboard ───────────────────────────
-    const title = await page.title();
-    console.log(`  Título da página: "${title}"`);
-
-    const protocolCount = await page.locator('table tbody tr').count();
-    console.log(`  Protocolos visíveis na tabela: ${protocolCount}`);
-
+    console.log(`  Protocolos visíveis na tabela: ${await page.locator('table tbody tr').count()}`);
     const stats = await page.locator('.card p.text-2xl').allTextContents();
-    if (stats.length > 0) {
-      console.log(`  Stats do dashboard: [${stats.join(', ')}]`);
-    }
+    if (stats.length > 0) console.log(`  Stats do dashboard: [${stats.join(', ')}]`);
 
-    // ── Passo 7: Tirar screenshot ──────────────────────────────────────────
-    await page.screenshot({ path: 'C:\\Users\\mdasilvacerq\\claro-omnichannel\\test-result.png', fullPage: false });
-    console.log('\n📸 Screenshot salvo em: claro-omnichannel\\test-result.png');
+    const shotPath = path.join(SHOTS, 'dashboard.png');
+    await page.screenshot({ path: shotPath });
+    console.log(`\n📸 Screenshot: ${path.relative(ROOT, shotPath)}`);
 
     console.log('\n╔══════════════════════════════════════════════════════╗');
-    console.log('║  ✅ TESTE E2E COMPLETO — TODOS OS PASSOS OK          ║');
+    console.log('║  ✅ TESTE E2E 2FA COMPLETO — TODOS OS PASSOS OK      ║');
     console.log('╚══════════════════════════════════════════════════════╝');
-    console.log('\nResumo do fluxo validado:');
-    console.log('  1. Credenciais enviadas → backend exige 2FA');
-    console.log('  2. Tela de OTP exibida no browser');
-    console.log('  3. Código TOTP gerado em tempo real com otplib');
-    console.log('  4. Código aceito → JWT de acesso emitido (15min)');
-    console.log('  5. Dashboard carregado com protocolos reais');
-
-    // Manter browser aberto por 8s para o usuário ver
-    await page.waitForTimeout(8000);
-
+    if (headed) await page.waitForTimeout(5000);
   } catch (err) {
-    console.error('\n❌ Erro no teste:', err.message);
-    await page.screenshot({ path: 'C:\\Users\\mdasilvacerq\\claro-omnichannel\\test-error.png' });
-    console.log('📸 Screenshot de erro salvo em: claro-omnichannel\\test-error.png');
+    await page.screenshot({ path: path.join(SHOTS, 'erro.png') }).catch(() => {});
+    throw err;
   } finally {
     await browser.close();
   }
@@ -191,31 +172,11 @@ async function browserTest(secret) {
 // ─── MAIN ─────────────────────────────────────────────────────────────────────
 (async () => {
   try {
-    const secret = await setup2FA();
-
-    // Se setup2FA retornou null, 2FA já estava ativo — precisamos do secret do banco
-    if (secret === null) {
-      // Buscar o secret direto pelo Node para o teste do browser
-      const requireBackend = createRequire(new URL('./backend/package.json', import.meta.url).href);
-      const { PrismaClient } = requireBackend('@prisma/client');
-      const prisma = new PrismaClient({
-        datasources: { db: { url: 'file:C:/Users/mdasilvacerq/claro-omnichannel/backend/prisma/dev.db' } },
-      });
-      const user = await prisma.user.findUnique({ where: { email: EMAIL } });
-      await prisma.$disconnect();
-
-      if (!user?.totpSecret) {
-        console.error('Não foi possível recuperar o secret do banco.');
-        process.exit(1);
-      }
-
-      const decrypted = CryptoJS.AES.decrypt(user.totpSecret, ENCRYPTION_KEY).toString(CryptoJS.enc.Utf8);
-      await browserTest(decrypted);
-    } else {
-      await browserTest(secret);
-    }
+    const secret = (await setup2FA()) ?? (await secretFromDatabase());
+    await browserTest(secret);
   } catch (err) {
-    console.error('Erro fatal:', err);
+    console.error(`\n❌ Falha: ${err.message}`);
+    console.error('   Os servidores estão rodando? (backend :3000 e painel :5173)');
     process.exit(1);
   }
 })();
