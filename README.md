@@ -1,969 +1,421 @@
 # Claro Omnichannel — PoC de Unificação de Canais de Atendimento
 
-> **Projeto Acadêmico** · Disciplina de Engenharia de Software / Sistemas Distribuídos  
-> Desafio Real: Claro Brasil — Fragmentação no atendimento ao cliente
+> **Projeto acadêmico FIAP** em parceria com a **Claro Brasil**
+> Desafio: o cliente abre um chamado em um canal, é transferido para outro e perde o histórico.
+
+**Ideia central:** um único **protocolo** (`CLR-AAAA-NNNNN`) com uma única **linha do tempo**, não importa por qual canal o cliente fale. Telegram → telefone → WebChat: tudo no mesmo protocolo, em tempo real, para o cliente e para o atendente.
+
+| Canal | Situação | Como funciona |
+|---|---|---|
+| **WebChat** (app do cliente, PWA) | ✅ **Real** | React PWA + REST + WebSocket |
+| **Telegram** | ✅ **Real** | Bot oficial ([@claro_omnichannel_mathcerq_bot](https://t.me/claro_omnichannel_mathcerq_bot)) via Telegram Bot API, *long polling* |
+| **Telefone** | 🧪 **Mock assumido** | Simulado **de propósito**: ligações e dados são inventados. Não há integração com telefonia |
+
+> O WhatsApp, que aparecia nas versões anteriores, foi substituído pelo Telegram como canal de mensageria **real**: a API do WhatsApp Business exige conta comercial verificada pela Meta, o que não cabe numa PoC acadêmica. A arquitetura aceita o WhatsApp como um novo *adapter* sem mudar o núcleo (veja [Como adicionar um canal](#como-adicionar-um-canal)).
 
 ---
 
 ## Sumário
 
-1. [Visão Geral da Solução](#1-visão-geral-da-solução)
-2. [Arquitetura do Sistema](#2-arquitetura-do-sistema)
-3. [Decisões de Cibersegurança (LGPD)](#3-decisões-de-cibersegurança-lgpd)
-4. [Fluxo Omnichannel Unificado](#4-fluxo-omnichannel-unificado)
-5. [Modelo de Dados](#5-modelo-de-dados)
-6. [Stack Tecnológica](#6-stack-tecnológica)
-7. [Estrutura de Pastas](#7-estrutura-de-pastas)
-8. [Instalação e Execução](#8-instalação-e-execução)
-9. [Credenciais de Teste](#9-credenciais-de-teste)
-10. [Endpoints da API](#10-endpoints-da-api)
-11. [WebSocket Events](#11-websocket-events)
-12. [Relatório de Testes de Segurança](#12-relatório-de-testes-de-segurança)
-13. [Teste E2E com Playwright](#13-teste-e2e-com-playwright)
+1. [Como rodar](#1-como-rodar)
+2. [Configurar o bot do Telegram](#2-configurar-o-bot-do-telegram)
+3. [Roteiro de demonstração](#3-roteiro-de-demonstração)
+4. [Arquitetura](#4-arquitetura)
+5. [Canal telefone: mock assumido](#5-canal-telefone-mock-assumido)
+6. [Segurança e LGPD](#6-segurança-e-lgpd)
+7. [Modelo de dados](#7-modelo-de-dados)
+8. [API REST](#8-api-rest)
+9. [Eventos WebSocket](#9-eventos-websocket)
+10. [Testes](#10-testes)
+11. [Estrutura de pastas](#11-estrutura-de-pastas)
+12. [Limitações e próximos passos](#12-limitações-e-próximos-passos)
 
 ---
 
-## 1. Visão Geral da Solução
-
-### O Problema
-
-A Claro enfrenta fragmentação no atendimento ao cliente: um chamado aberto via **WhatsApp** e posteriormente transferido para a **central telefônica** perde todo o histórico, forçando o cliente a repetir dados e relatos. Isso gera:
-
-- Insatisfação e aumento do NPS negativo
-- Retrabalho dos atendentes
-- Tempo médio de atendimento (TMA) elevado
-- Descumprimento potencial da LGPD (falta de rastreabilidade)
-
-### A Solução
-
-Uma **Plataforma Omnichannel Unificada** com:
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│              CLARO OMNICHANNEL — VISÃO GERAL                    │
-├──────────────────┬──────────────────┬───────────────────────────┤
-│  CLIENTE (PWA)   │ ATENDENTE (Web)  │     BACKEND (NestJS)      │
-│  :5174           │  :5173           │        :3000              │
-│                  │                  │                           │
-│  • Login/2FA     │  • Dashboard     │  • Auth JWT+TOTP          │
-│  • Abrir chamado │  • Lista ao vivo │  • Omnichannel Engine     │
-│  • Histórico     │  • Chat unific.  │  • WebSocket Gateway      │
-│  • Chat unific.  │  • RBAC views    │  • RBAC + Helmet          │
-│  • Config. 2FA   │  • Transferência │  • Prisma + SQLite        │
-└──────────────────┴──────────────────┴───────────────────────────┘
-```
-
-**Diferencial principal:** O número de protocolo (`CLR-XXXX-NNNNN`) é único e persiste independente do canal. WhatsApp → Telefone → WebChat mantém a **mesma linha do tempo** de mensagens.
-
----
-
-## 2. Arquitetura do Sistema
-
-### Diagrama de Componentes
-
-```
-                    ┌──────────────────────────────────────────┐
-                    │           CLARO OMNICHANNEL POC          │
-                    └──────────────────────────────────────────┘
-
- ┌───────────────────┐    REST/WS    ┌──────────────────────────┐
- │  frontend-client  │◄────────────►│                          │
- │  React PWA :5174  │              │    backend (NestJS)       │
- └───────────────────┘              │         :3000             │
-                                    │                           │
- ┌───────────────────┐    REST/WS   │  ┌─────────────────────┐ │
- │  frontend-agent   │◄────────────►│  │  AuthModule         │ │
- │  React Web :5173  │              │  │  JWT+TOTP+bcrypt     │ │
- └───────────────────┘              │  ├─────────────────────┤ │
-                                    │  │  ProtocolsModule     │ │
-                                    │  │  (Omnichannel Engine)│ │
-      Simuladores de Canal           │  ├─────────────────────┤ │
-  ┌──────────────────────────┐      │  │  MessagesModule      │ │
-  │  POST /simulate          │─────►│  │  (Timeline unificada)│ │
-  │  channel: WHATSAPP/PHONE │      │  ├─────────────────────┤ │
-  └──────────────────────────┘      │  │  WebSocket Gateway   │ │
-                                    │  │  (Socket.io rooms)   │ │
-                                    │  ├─────────────────────┤ │
-                                    │  │  Prisma ORM          │ │
-                                    │  │  SQLite (dev.db)     │ │
-                                    │  └─────────────────────┘ │
-                                    └──────────────────────────┘
-```
-
-### Padrões Arquiteturais Adotados
-
-| Padrão | Implementação |
-|---|---|
-| **Modular Monolith** | Módulos NestJS independentes com injeção de dependência |
-| **Repository Pattern** | Prisma ORM como camada de abstração do banco |
-| **Guard Chain** | ThrottlerGuard → JwtAuthGuard → RolesGuard |
-| **Event-Driven (WS)** | Socket.io com rooms por protocolo para notificações em tempo real |
-| **DTO Validation** | class-validator + class-transformer em todas as entradas |
-
----
-
-## 3. Decisões de Cibersegurança (LGPD)
-
-### 3.1 Autenticação em 2 Fatores (TOTP/2FA)
-
-O sistema implementa **três caminhos distintos** no fluxo de login, garantindo que perfis privilegiados não acessem nenhum recurso antes de configurar e verificar o 2FA:
-
-```
-POST /auth/login {email, password}
-         │
-         ├─► Perfil AGENT/SUPERVISOR/ADMIN + 2FA NÃO configurado
-         │        └─► { requiresTotpSetup: true, setupToken (10min, setupOnly) }
-         │             Usuário é direcionado para configurar o 2FA
-         │             setupToken só acessa /auth/totp/* — bloqueado em qualquer outra rota
-         │             Após ativar → reiniciar login (fluxo abaixo)
-         │
-         ├─► 2FA JÁ configurado (qualquer role)
-         │        └─► { requiresOtp: true, tempToken (5min) }
-         │             POST /auth/verify-otp {tempToken, code: "123456"}
-         │             └─► { accessToken (15min), refreshToken (7d), user }
-         │
-         └─► CLIENT sem 2FA / perfil sem obrigatoriedade
-                  └─► { accessToken (15min), refreshToken (7d), user }
-```
-
-**Política de 2FA obrigatório:** Perfis `AGENT`, `SUPERVISOR` e `ADMIN` têm acesso a dados de todos os clientes. A política de segurança exige que o 2FA seja configurado **antes do primeiro acesso** a qualquer endpoint protegido.
-
-**Biblioteca:** `otplib` v12 — compatível com Google Authenticator, Authy, Microsoft Authenticator  
-**Algoritmo:** TOTP (Time-based One-Time Password) — RFC 6238  
-**Secret:** Gerado com `authenticator.generateSecret()`, cifrado com **AES-256** antes de persistir
-
-### 3.2 Proteção de Senhas
-
-- **bcrypt** com `saltRounds = 12` — resistente a ataques de força bruta
-- Jamais armazenado em texto plano; apenas o hash é persistido
-- Hash produzido: `$2b$12$...` (formato confirmado em teste)
-
-### 3.3 Tokens JWT
-
-| Token | Expiração | Uso |
-|---|---|---|
-| `accessToken` | 15 minutos | Autorização em cada requisição REST e WebSocket |
-| `refreshToken` | 7 dias | Renovação do access token via `POST /auth/refresh` |
-| `tempToken` | 5 minutos | Fluxo intermediário: credenciais válidas, aguardando código TOTP |
-| `setupToken` | 10 minutos | Perfil privilegiado sem 2FA — restrito a `/auth/totp/*` (claim `setupOnly: true`) |
-
-- Algoritmo: **HS256** com segredos distintos para access e refresh
-- `setupToken` carrega o claim `setupOnly: true`; o `JwtAuthGuard` bloqueia qualquer rota fora de `/auth/totp/*` com `403 Forbidden`
-- Em produção: migrar para **RS256** com par de chaves assimétrico
-
-### 3.4 Mecanismo setupOnly (Token Restrito)
-
-O `setupToken` resolve o problema de exposição parcial: o usuário precisa estar autenticado para gerar o QR Code do 2FA, mas não pode acessar nenhum dado até concluir o setup.
-
-```
-JwtStrategy.validate(payload):
-  if payload.setupOnly → retorna { id, email, role, setupOnly: true }
-  (sem consulta ao banco — token não precisa de dados adicionais)
-
-JwtAuthGuard.handleRequest(err, user, info, context):
-  if user.setupOnly AND url NOT includes '/auth/totp':
-    throw ForbiddenException('Acesso restrito. Configure o 2FA antes de continuar.')
-```
-
-### 3.5 Controle de Acesso (RBAC)
-
-```
-ADMIN      → acesso total
-SUPERVISOR → gerencia atendentes, visualiza tudo
-AGENT      → gerencia protocolos, envia mensagens
-CLIENT     → acessa apenas seus próprios protocolos
-```
-
-Implementado via `@Roles()` decorator + `RolesGuard` (NestJS Guard) aplicado globalmente.  
-Cadeia de guards na ordem: `ThrottlerGuard → JwtAuthGuard → RolesGuard`.
-
-### 3.6 Headers de Segurança HTTP
-
-**Helmet.js** configurado com (confirmado em teste):
-
-| Header | Valor |
-|---|---|
-| `Strict-Transport-Security` | `max-age=15552000; includeSubDomains` |
-| `X-Frame-Options` | `SAMEORIGIN` |
-| `X-Content-Type-Options` | `nosniff` |
-| `Referrer-Policy` | `no-referrer` |
-| `Content-Security-Policy` | política padrão Helmet |
-| `X-RateLimit-Limit` | `120` (confirmado no header de resposta) |
-
-### 3.7 Rate Limiting
-
-`@nestjs/throttler` — 120 requisições/minuto por IP (global).  
-Endpoints de autenticação: **10 tentativas/minuto** (Throttle override).  
-Resposta ao exceder: `429 Too Many Requests`.
-
-### 3.8 Dados Sensíveis (LGPD Art. 46)
-
-| Dado | Proteção |
-|---|---|
-| Senha | bcrypt hash (sem reversibilidade) |
-| TOTP Secret | AES-256 antes de persistir no banco |
-| Logs de acesso | Tabela `AuditLog` com IP, timestamp, ação |
-| Dados do cliente | Acesso restrito por `clientId` — RBAC |
-
-### 3.9 Auditoria
-
-Todos os eventos críticos são registrados na tabela `AuditLog`:
-
-| Evento | Quando ocorre |
-|---|---|
-| `LOGIN_2FA_SETUP_REQUIRED` | Perfil privilegiado faz login sem 2FA configurado |
-| `LOGIN_PENDING_2FA` | Credenciais válidas, aguardando código TOTP |
-| `LOGIN_SUCCESS` | Login completo com 2FA verificado |
-| `LOGIN_2FA_FAILED` | Código TOTP inválido |
-| `TOTP_ENABLED` | 2FA ativado com sucesso |
-
----
-
-## 4. Fluxo Omnichannel Unificado
-
-```
-CLIENTE abre chamado via WhatsApp
-         │
-         ▼
-┌─────────────────────────────┐
-│  Protocolo: CLR-2024-08543  │
-│  Status: OPEN               │
-│  Canal atual: WHATSAPP      │
-│  Timeline: [msg1, msg2...]  │
-└─────────────────────────────┘
-         │
-         │  ← Atendente assume e transfere para ligação
-         ▼
-┌─────────────────────────────┐
-│  MESMO Protocolo            │
-│  Status: IN_PROGRESS        │
-│  Canal atual: PHONE ←       │
-│  Timeline: [msg1, msg2,     │
-│             msg3_phone]     │  ← Histórico do WhatsApp PRESERVADO
-└─────────────────────────────┘
-         │
-         │  ← Cliente retorna pelo WebChat
-         ▼
-┌─────────────────────────────┐
-│  MESMO Protocolo            │
-│  Status: IN_PROGRESS        │
-│  Canal atual: WEBCHAT ←     │
-│  Timeline: [msg1, msg2,     │
-│             msg3_phone,     │
-│             msg4_webchat]   │  ← Timeline CONTÍNUA e COMPLETA
-└─────────────────────────────┘
-         │
-         │  ← Problema resolvido
-         ▼
-┌─────────────────────────────┐
-│  MESMO Protocolo            │
-│  Status: CLOSED             │
-│  closedAt: 2024-xx-xx       │
-└─────────────────────────────┘
-```
-
-**Sincronização em tempo real:** Cada mensagem enviada em qualquer canal é emitida via WebSocket para todos os participantes da sala `protocol:{id}` instantaneamente.
-
----
-
-## 5. Modelo de Dados
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        SCHEMA PRISMA                            │
-├──────────────────┬──────────────────────────────────────────────┤
-│ User             │ Protocol                                     │
-│ ─────────────    │ ─────────────────────                        │
-│ id (uuid) PK     │ id (uuid) PK                                 │
-│ name             │ protocolNumber (unique) → "CLR-2024-XXXXX"   │
-│ email (unique)   │ title                                        │
-│ phone?           │ description?                                 │
-│ passwordHash     │ status → OPEN|IN_PROGRESS|WAITING|CLOSED     │
-│ role →           │ priority → LOW|MEDIUM|HIGH|URGENT            │
-│   CLIENT         │ currentChannel → WHATSAPP|PHONE|WEBCHAT|EMAIL│
-│   AGENT          │ clientId → User (FK)                         │
-│   SUPERVISOR     │ agentId? → User (FK)                         │
-│   ADMIN          │ createdAt / updatedAt / closedAt?            │
-│ totpSecret?      │                                              │
-│   (AES-256)      │ Message                                      │
-│ totpEnabled      │ ─────────────────────                        │
-│ isActive         │ id (uuid) PK                                 │
-│ createdAt        │ content                                      │
-│ updatedAt        │ channel → (canal desta mensagem)             │
-│                  │ senderRole                                   │
-│ TwoFactorSession │ isRead                                       │
-│ ─────────────    │ createdAt                                    │
-│ id (uuid) PK     │ protocolId → Protocol (FK)                   │
-│ tokenHash        │ senderId → User (FK)                         │
-│ expiresAt        │                                              │
-│ used             │ AuditLog                                     │
-│ ipAddress?       │ ─────────────────────                        │
-│ userId → User    │ id, action, resource, details, ipAddress,    │
-│                  │ userId → User, createdAt                     │
-└──────────────────┴──────────────────────────────────────────────┘
-```
-
----
-
-## 6. Stack Tecnológica
-
-| Camada | Tecnologia | Versão | Justificativa |
-|---|---|---|---|
-| **Backend** | NestJS + TypeScript | 10.x / 5.x | Modular, DI nativo, Guards, Decorators |
-| **Banco de Dados** | SQLite + Prisma ORM | 5.x | Zero config local, type-safe, migrations |
-| **Autenticação** | JWT + Passport.js | 10.x | Padrão de mercado, stateless |
-| **2FA** | otplib (TOTP) | 12.x | RFC 6238, compatível com Google Authenticator |
-| **Criptografia** | bcrypt + crypto-js | 5.x / 4.x | Hashing seguro + AES-256 |
-| **Real-time** | Socket.io | 4.x | Rooms por protocolo, reconnect automático |
-| **Rate Limit** | @nestjs/throttler | 5.x | Proteção contra brute-force |
-| **Security Headers** | Helmet.js | 7.x | OWASP headers |
-| **Painel Atendente** | React 18 + Vite | 18.x / 5.x | Build rápido, HMR |
-| **Interface Cliente** | React PWA + Vite | 18.x / 5.x | Funciona como app mobile no browser |
-| **Estilização** | Tailwind CSS | 3.x | Utility-first, responsivo, sem CSS custom |
-| **Estado** | Zustand | 4.x | Simples, sem boilerplate |
-| **HTTP Client** | Axios | 1.x | Interceptors para JWT automático |
-| **QR Code** | qrcode.react | 3.x | Geração do QR para 2FA |
-| **Validação DTO** | class-validator | 0.14.x | Decorators de validação |
-| **Testes E2E** | Playwright | 1.x | Automação real de browser (Chrome) |
-
----
-
-## 7. Estrutura de Pastas
-
-```
-claro-omnichannel/
-│
-├── backend/                          # API NestJS
-│   ├── prisma/
-│   │   ├── schema.prisma             # Modelos do banco
-│   │   └── seed.ts                   # Dados de exemplo
-│   ├── src/
-│   │   ├── main.ts                   # Bootstrap (Helmet, CORS, Validation)
-│   │   ├── app.module.ts             # Módulo raiz (Guards globais)
-│   │   ├── prisma/                   # PrismaModule (global)
-│   │   ├── common/
-│   │   │   ├── guards/
-│   │   │   │   ├── jwt-auth.guard.ts # Guard JWT (setupOnly + @Public())
-│   │   │   │   └── roles.guard.ts    # Guard RBAC
-│   │   │   └── decorators/
-│   │   │       ├── roles.decorator.ts
-│   │   │       ├── current-user.decorator.ts
-│   │   │       └── public.decorator.ts
-│   │   ├── auth/                     # JWT + TOTP + bcrypt
-│   │   │   ├── auth.service.ts       # Lógica de autenticação (login 3 caminhos)
-│   │   │   ├── auth.controller.ts    # Endpoints /auth/*
-│   │   │   ├── auth.module.ts
-│   │   │   ├── dto/                  # LoginDto, RegisterDto, VerifyTotpDto
-│   │   │   └── strategies/           # JwtStrategy, LocalStrategy
-│   │   ├── users/                    # CRUD de usuários
-│   │   ├── protocols/                # Omnichannel Engine (CRUD + stats)
-│   │   ├── messages/                 # Timeline unificada + simulador de canal
-│   │   └── gateway/                  # Socket.io WebSocket Gateway
-│   ├── .env                          # Variáveis de ambiente
-│   └── package.json
-│
-├── frontend-agent/                   # Painel do Atendente (React :5173)
-│   └── src/
-│       ├── api/
-│       │   ├── axios.ts              # Axios + interceptor JWT automático
-│       │   └── socket.ts             # Socket.io singleton
-│       ├── store/
-│       │   ├── auth.store.ts         # Zustand: auth state
-│       │   └── protocols.store.ts    # Zustand: protocolos + mensagens
-│       ├── pages/
-│       │   ├── Login.tsx             # Login 5 passos: credentials/otp/setup-info/setup-qr/setup-verify
-│       │   ├── Dashboard.tsx         # Lista de protocolos em tempo real
-│       │   └── ProtocolDetail.tsx    # Chat + sidebar de gestão
-│       └── components/
-│           ├── ChatPanel.tsx         # Painel de chat com seletor de canal
-│           ├── ChannelBadge.tsx      # Badge visual do canal
-│           └── StatusBadge.tsx       # Badge de status e prioridade
-│
-├── frontend-client/                  # Interface do Cliente (PWA :5174)
-│   └── src/
-│       ├── api/                      # axios.ts + socket.ts
-│       ├── store/                    # auth.store.ts
-│       └── pages/
-│           ├── Login.tsx             # Login + 2FA
-│           ├── Register.tsx          # Cadastro de cliente
-│           ├── Home.tsx              # Lista de protocolos + widget
-│           ├── NewProtocol.tsx       # Abrir novo chamado
-│           ├── ProtocolDetail.tsx    # Chat em tempo real
-│           └── TotpSetup.tsx         # Configurar 2FA (QR Code)
-│
-├── e2e-test.mjs                      # Teste E2E completo (Playwright + TOTP real)
-├── .gitignore
-└── README.md
-```
-
----
-
-## 8. Instalação e Execução
+## 1. Como rodar
 
 ### Pré-requisitos
 
-- **Node.js** 18+ (`node --version`)
-- **npm** 9+ (`npm --version`)
+- **Node.js 18+** (testado com Node 24) e **npm 9+**
+- **Google Chrome**, só para os testes de navegador (Playwright usa o Chrome instalado)
 
-### Passo 1 — Backend
-
-```bash
-cd claro-omnichannel/backend
-
-# Instalar dependências
-npm install
-
-# Gerar cliente Prisma e criar banco
-npx prisma migrate dev --name init
-
-# Popular banco com dados de exemplo
-npx ts-node -r tsconfig-paths/register prisma/seed.ts
-
-# Iniciar servidor de desenvolvimento
-npm run start:dev
-```
-
-O backend estará disponível em: `http://localhost:3000`
-
-### Passo 2 — Painel do Atendente
+### Passo a passo
 
 ```bash
-# Em um novo terminal
-cd claro-omnichannel/frontend-agent
+# 1. Variáveis de ambiente do backend (o .env NUNCA é versionado)
+cp backend/.env.example backend/.env
+#    Edite backend/.env e preencha JWT_SECRET, JWT_REFRESH_SECRET e TOTP_ENCRYPTION_KEY
+#    com valores aleatórios (comando de exemplo dentro do arquivo).
+#    Para o Telegram, preencha TELEGRAM_BOT_TOKEN (seção 2). Vazio = Telegram desligado.
 
-npm install
+# 2. Instala tudo, cria o banco SQLite e popula com dados de demonstração
+npm run setup
+
+# 3. Sobe API + painel do atendente + app do cliente (um terminal só)
 npm run dev
 ```
 
-Disponível em: `http://localhost:5173`
+| Serviço | URL |
+|---|---|
+| API (NestJS) + WebSocket | http://localhost:3000 |
+| Painel do atendente | http://localhost:5173 |
+| App do cliente (PWA / WebChat) | http://localhost:5174 |
 
-### Passo 3 — Interface do Cliente (PWA)
+Outros comandos úteis (na raiz):
 
-```bash
-# Em outro terminal
-cd claro-omnichannel/frontend-client
+| Comando | O que faz |
+|---|---|
+| `npm run db:reset` | Apaga o banco, reaplica as migrações e roda o seed |
+| `npm test` | Testes unitários + e2e do Telegram + e2e de interface |
+| `npm run test:e2e:2fa` | Login com 2FA no navegador (exige `npm run dev` rodando) |
 
-npm install
-npm run dev
-```
+### Credenciais de demonstração
 
-Disponível em: `http://localhost:5174`
+Senha de todas as contas: **`Claro@2024`**
 
-### Execução Rápida (todos simultâneos)
+| Perfil | E-mail | Onde entra | 2FA |
+|---|---|---|---|
+| Admin | admin@claro.com.br | Painel (:5173) | Obrigatório |
+| Supervisor | supervisor@claro.com.br | Painel (:5173) | Obrigatório |
+| Atendente | joao.atendente@claro.com.br | Painel (:5173) | Obrigatório |
+| Atendente | maria.atendente@claro.com.br | Painel (:5173) | Obrigatório |
+| Cliente | carlos.cliente@email.com | App (:5174) | Opcional |
+| Cliente | fernanda.cliente@email.com | App (:5174) | Opcional |
+| Cliente | roberto.cliente@email.com | App (:5174) | Opcional |
 
-Em 3 terminais diferentes:
-```bash
-# Terminal 1
-cd backend && npm install && npx prisma migrate dev --name init && npx ts-node -r tsconfig-paths/register prisma/seed.ts && npm run start:dev
+No primeiro login de um perfil privilegiado, o sistema exige configurar o 2FA (QR Code para Google Authenticator, Authy etc.) antes de liberar qualquer acesso.
 
-# Terminal 2
-cd frontend-agent && npm install && npm run dev
-
-# Terminal 3
-cd frontend-client && npm install && npm run dev
-```
-
-### Executar o Teste E2E
-
-```bash
-# Na raiz do projeto (instalar dependências do teste primeiro)
-npm install playwright otplib@12 crypto-js
-
-# Garantir que os 3 servidores estejam rodando, então:
-node e2e-test.mjs
-```
+| Protocolo (seed) | Cliente | Jornada |
+|---|---|---|
+| CLR-2026-10001 | Carlos | Telegram → Telefone (mock) → WebChat |
+| CLR-2026-10002 | Fernanda | Telegram |
+| CLR-2026-10003 | Roberto | Telefone (mock) |
 
 ---
 
-## 9. Credenciais de Teste
+## 2. Configurar o bot do Telegram
 
-> Senha de todas as contas: **`Claro@2024`**
+1. No Telegram, fale com o [@BotFather](https://t.me/BotFather) → `/newbot` → escolha nome e *username* → copie o **token**.
+2. Coloque o token em `backend/.env`:
+   ```env
+   TELEGRAM_BOT_TOKEN=<token do BotFather>
+   ```
+3. Rode `npm run dev`. No log da API deve aparecer:
+   ```
+   [TelegramPolling] Bot @seu_bot conectado — long polling iniciado.
+   ```
 
-| Perfil | E-mail | Acesso | 2FA obrigatório? |
-|---|---|---|---|
-| **Admin** | admin@claro.com.br | Painel do Atendente (:5173) | Sim |
-| **Supervisor** | supervisor@claro.com.br | Painel do Atendente (:5173) | Sim |
-| **Atendente 1** | joao.atendente@claro.com.br | Painel do Atendente (:5173) | Sim |
-| **Atendente 2** | maria.atendente@claro.com.br | Painel do Atendente (:5173) | Sim |
-| **Cliente 1** | carlos.cliente@email.com | Interface do Cliente (:5174) | Não |
-| **Cliente 2** | fernanda.cliente@email.com | Interface do Cliente (:5174) | Não |
-| **Cliente 3** | roberto.cliente@email.com | Interface do Cliente (:5174) | Não |
+**Por que long polling?** O backend busca as mensagens no Telegram (`getUpdates`), em vez de o Telegram chamar o backend (webhook). Assim, roda em qualquer máquina local sem expor o servidor nem precisar de HTTPS público. Ao iniciar, o backend remove qualquer webhook, registra os comandos do bot e, se a rede cair, tenta de novo com espera crescente.
 
-> **Nota:** Na primeira vez que um atendente/supervisor/admin faz login, o sistema exige configuração do 2FA (fluxo `requiresTotpSetup`). O 2FA é configurado diretamente na tela de login, sem acesso ao sistema antes de concluir.
+> ⚠️ Só **uma** instância pode fazer long polling de um mesmo bot por vez. Se aparecer `Conflito (409)` no log, há outro backend usando o mesmo token (por exemplo, em outro computador).
 
-### Protocolos de Exemplo
+**Segurança do token:** fica só no `backend/.env` (ignorado pelo git). O token faz parte da URL da Bot API, então o cliente HTTP oculta (`***`) qualquer ocorrência dele em erros e logs, e há teste automatizado garantindo isso.
 
-| Protocolo | Cliente | Status | Canais |
-|---|---|---|---|
-| CLR-2024-001 | Carlos Silva | Em Andamento | WhatsApp → Telefone → WebChat |
-| CLR-2024-002 | Fernanda Santos | Aberto | WhatsApp |
-| CLR-2024-003 | Roberto Oliveira | Aguardando | Telefone |
+### Como o cliente vincula o Telegram
+
+O vínculo usa um **código de uso único gerado no WebChat, com o cliente já logado**. Isso prova que a mesma pessoa controla a conta e o Telegram. Vincular só pelo e-mail permitiria que qualquer pessoa digitasse o e-mail de outra e lesse os protocolos dela.
+
+1. No app (:5174) → **Conectar Telegram** → **Gerar código de vínculo**.
+2. Toque em **Abrir no Telegram** (deep link `t.me/<bot>?start=CÓDIGO`) ou leia o QR Code. Também dá para enviar `/vincular CÓDIGO` ao bot.
+3. O bot confirma e o app atualiza na hora ("Telegram conectado").
+
+Regras: o código tem 8 caracteres, vale 10 minutos e só pode ser usado uma vez. Apenas o hash SHA-256 fica salvo, e há bloqueio após 5 tentativas inválidas por chat. Um chat corresponde a um cliente.
+
+### Comandos do bot
+
+| Comando | O que faz |
+|---|---|
+| *(texto livre)* | Registra no protocolo ativo. Se não houver, **reaproveita** o protocolo aberto mais recente ou **cria** um novo |
+| `/novo assunto` | Abre um novo protocolo |
+| `/protocolos` | Lista os protocolos em aberto (👉 marca o ativo) |
+| `/usar CLR-AAAA-NNNNN` | Escolhe em qual protocolo continuar |
+| `/historico` | Últimas mensagens do protocolo, **de todos os canais** |
+| `/status` | Situação, atendente e último canal |
+| `/desvincular` | Remove o vínculo (direito do titular, LGPD) |
+| `/ajuda` | Ajuda |
+
+O bot só atende em conversa **privada** (recusa grupos), envia texto puro (sem HTML/Markdown) e limita a 20 mensagens por minuto por chat.
 
 ---
 
-## 10. Endpoints da API
+## 3. Roteiro de demonstração
+
+Teste manual com o bot real **@claro_omnichannel_mathcerq_bot** (com `npm run dev` rodando e o token no `.env`):
+
+1. **Cliente no WebChat:** entre em http://localhost:5174 como `carlos.cliente@email.com` → **Conectar Telegram** → **Gerar código** → **Abrir no Telegram** → *Iniciar*. O app mostra "Telegram conectado".
+2. **Cliente no Telegram:** envie `/protocolos` para ver o CLR-2026-10001 vindo do seed, ou `/novo Internet caindo à noite` para abrir um novo protocolo. Depois mande uma mensagem livre.
+3. **Atendente:** entre em http://localhost:5173 como `joao.atendente@claro.com.br` (com 2FA). O protocolo aparece na lista **sem recarregar** e a mensagem do Telegram chega **ao vivo** na tela do protocolo.
+4. **Atendente responde pelo Telegram:** com o canal **Telegram** selecionado (padrão quando o cliente escreveu por lá), a resposta chega ao Telegram do cliente e o painel mostra "✓ entregue no Telegram".
+5. **Troca de canal:** no app (:5174), abra o mesmo protocolo e escreva pelo WebChat. Mesmo número, mesma timeline, cada mensagem com seu canal. No Telegram, `/historico` mostra as mensagens dos dois canais.
+6. **Telefone (mock):** no painel, **Simular ligação recebida**. Entra uma "ligação" com dados inventados na mesma timeline.
+7. **Encerramento:** no painel, **Encerrar**. O cliente recebe o aviso no Telegram, e a próxima mensagem abre outro protocolo (o encerrado não é reaberto).
+
+| Vincular Telegram (app) | Timeline unificada (app) |
+|---|---|
+| ![Vincular Telegram](docs/screenshots/cliente-vincular-telegram.png) | ![Timeline no app](docs/screenshots/cliente-timeline-unificada.png) |
+
+![Painel: timeline unificada com Telegram, WebChat e telefone simulado](docs/screenshots/painel-timeline-unificada.png)
+
+![Painel: dashboard com indicador de canais reais e mock](docs/screenshots/painel-dashboard.png)
+
+*Capturas geradas pelo teste automatizado de interface, que usa um servidor fake da Bot API (por isso o bot aparece como `@claro_test_bot`).*
+
+---
+
+## 4. Arquitetura
+
+```
+ ┌────────────────────┐       ┌──────────────────────────────────────────────────────────┐
+ │ App do cliente     │ REST  │                    backend (NestJS)                       │
+ │ PWA :5174 (WebChat)│◄─────►│                                                          │
+ └────────────────────┘  WS   │   ┌──────────────── NÚCLEO ────────────────┐             │
+ ┌────────────────────┐       │   │ ProtocolsService   MessagesService      │             │
+ │ Painel atendente   │◄─────►│   │ (protocolo único)  (timeline unificada) │             │
+ │ React :5173        │       │   └──────────────┬──────────────────────────┘             │
+ └────────────────────┘       │        publica   │ eventos de domínio                     │
+                              │                  ▼ (message.created, protocol.updated…)   │
+ ┌────────────────────┐       │   ┌───────────────────┐   ┌──────────────────────────┐   │
+ │ Telegram           │ long  │   │ EventsGateway     │   │ ChannelRegistry          │   │
+ │ (Bot API)          │◄─────►│   │ Socket.io (salas  │   │  ├ WebchatAdapter  REAL  │   │
+ └────────────────────┘ poll  │   │ por usuário/staff/│   │  ├ TelegramAdapter REAL  │   │
+                              │   │ protocolo)        │   │  └ PhoneMockAdapter MOCK │   │
+                              │   └───────────────────┘   └──────────────────────────┘   │
+                              │   Auth (JWT + TOTP) · Guards (Throttler → JWT → Roles)    │
+                              │   Prisma ORM → SQLite                                     │
+                              └──────────────────────────────────────────────────────────┘
+```
+
+### Como o histórico se mantém ao trocar de canal
+
+- O **protocolo** é a entidade central e o canal é só um atributo de cada mensagem (`Message.channel`). O `Protocol.currentChannel` registra por onde foi o último contato.
+- **Toda** mensagem, de qualquer canal, passa por `MessagesService`: a do WebChat chega via REST e as dos canais externos via `createInbound()`. O registro vai sempre para o mesmo protocolo.
+- O núcleo publica **eventos de domínio** (`@nestjs/event-emitter`). Quem reage são os assinantes:
+  - `EventsGateway` repassa as mudanças ao painel e ao app via WebSocket, sempre na sala certa, nunca em broadcast;
+  - `ChannelDispatcher` entrega as respostas do atendente pelo canal escolhido (Telegram envia de verdade; Telefone apenas registra a simulação) e grava o status de entrega (`SENT`, `FAILED`, `SIMULATED`).
+- A entrada é **idempotente**: `(channel, externalId)` é único, então se o Telegram reentregar uma mensagem ela não duplica na timeline.
+
+### Como adicionar um canal
+
+Exemplo: WhatsApp Business ou e-mail.
+
+1. Crie `backend/src/channels/<canal>/` com um `ChannelAdapter` (`info`, `isAvailableFor`, `deliver`).
+2. Para receber mensagens, chame `MessagesService.createInbound({ protocolId, channel, content, externalId })`.
+3. Registre o adapter no `onModuleInit` do módulo (`registry.register(adapter)`) e importe o módulo no `AppModule`.
+4. Inclua o código do canal em `CHANNEL_CODES` (`channel.types.ts`).
+
+Não é preciso alterar protocolos, mensagens, WebSocket nem guards. Trocar o telefone mock por uma integração real é só registrar outro adapter com `code: 'PHONE'`.
+
+| Padrão | Onde |
+|---|---|
+| Monólito modular | Módulos NestJS independentes (DI) |
+| Adapter + Registry | `channels/` (canais plugáveis) |
+| Eventos de domínio | `events/domain-events.ts` + `@OnEvent` |
+| Repository | Prisma ORM |
+| Guard chain | `ThrottlerGuard → JwtAuthGuard → RolesGuard` (globais) |
+| Validação de entrada | DTOs com `class-validator` (`whitelist` + `forbidNonWhitelisted`) |
+
+---
+
+## 5. Canal telefone: mock assumido
+
+O canal telefone é **simulado de propósito**: não há URA, PABX nem CTI. Isso está explícito no código (`channels/phone-mock/`), na API (`GET /channels` retorna `kind: "MOCK"`) e na interface (badges "Telefone · mock" e "simulado (mock)").
+
+- **Ligação recebida (simulada):** botão *Simular ligação recebida* no painel, que chama `POST /channels/phone/mock-call`. O sistema gera uma ligação com dados **inventados** (número fictício `(11) 90000-0XXX`, duração e opção de URA aleatórias, resumo fictício) e a registra na timeline pelo mesmo caminho dos canais reais.
+- **Resposta "por telefone":** o atendente escolhe *Telefone (mock)* e escreve uma anotação da ligação, que fica na timeline com status `SIMULATED`. Nada é enviado a lugar nenhum.
+
+O que o mock demonstra é a **continuidade do histórico**, que é o objetivo do desafio, e não a telefonia em si.
+
+---
+
+## 6. Segurança e LGPD
 
 ### Autenticação
 
-| Método | Endpoint | Auth | Descrição |
-|---|---|---|---|
-| POST | `/auth/register` | Público | Criar nova conta |
-| POST | `/auth/login` | Público | Login — retorna um dos 3 caminhos |
-| POST | `/auth/verify-otp` | Público | Verificar código TOTP (tempToken) |
-| POST | `/auth/refresh` | Público | Renovar accessToken com refreshToken |
-| GET | `/auth/me` | JWT | Dados do usuário logado |
-| GET | `/auth/totp/setup` | setupToken | Gerar secret + QR Code do 2FA |
-| POST | `/auth/totp/enable` | setupToken | Ativar 2FA com código de confirmação |
-| POST | `/auth/totp/disable` | JWT | Desativar 2FA |
+- **Senhas** com bcrypt (custo 12).
+- **2FA TOTP** (RFC 6238, `otplib`) **obrigatório** para AGENT, SUPERVISOR e ADMIN. O segredo é cifrado com AES antes de ir para o banco.
+  - Um perfil privilegiado sem 2FA recebe um `setupToken` (10 min) que só acessa `/auth/totp/*`. Qualquer outra rota responde 403, e esse token também **não abre WebSocket**.
+  - **Anti-replay:** cada código TOTP vale uma única vez (último passo aceito gravado com atualização condicional).
+- **JWT** HS256 com segredos distintos: `accessToken` de 15 min e `refreshToken` de 7 dias. Os frontends **renovam automaticamente** e o WebSocket reautentica ao reconectar.
+- Sem segredos com valor padrão no código: a API **não sobe** se faltar `JWT_SECRET`, `JWT_REFRESH_SECRET` ou `TOTP_ENCRYPTION_KEY`.
+- **Cadastro público cria sempre CLIENT.** O campo `role` é rejeitado com 400; antes era possível se cadastrar como ADMIN.
 
-### Protocolos
+### Autorização (RBAC + menor privilégio)
 
-| Método | Endpoint | Roles | Descrição |
-|---|---|---|---|
-| GET | `/protocols` | Todos | Listar protocolos (filtrado por role) |
-| POST | `/protocols` | CLIENT | Abrir novo protocolo |
-| GET | `/protocols/stats` | AGENT+ | Estatísticas do dashboard |
-| GET | `/protocols/:id` | Todos | Detalhe com timeline de mensagens |
-| PATCH | `/protocols/:id` | AGENT+ | Atualizar status/prioridade/canal |
-| PATCH | `/protocols/:id/assign` | AGENT+ | Atribuir atendente |
+Regra única em `protocols/protocol-access.ts`, aplicada na API REST e no WebSocket:
 
-### Mensagens
-
-| Método | Endpoint | Roles | Descrição |
-|---|---|---|---|
-| POST | `/protocols/:id/messages` | Todos | Enviar mensagem no protocolo |
-| GET | `/protocols/:id/messages` | Todos | Listar mensagens |
-| POST | `/protocols/:id/messages/simulate` | AGENT+ | Simular mensagem de canal externo |
-
-### Usuários
-
-| Método | Endpoint | Roles | Descrição |
-|---|---|---|---|
-| GET | `/users` | ADMIN, SUPERVISOR | Listar todos os usuários |
-| GET | `/users/agents` | AGENT+ | Listar atendentes (para transferência) |
-| GET | `/users/:id` | ADMIN, SUPERVISOR | Detalhe do usuário |
-| PATCH | `/users/:id/status` | ADMIN | Ativar/desativar usuário |
-
----
-
-## 11. WebSocket Events
-
-### Cliente → Servidor
-
-| Evento | Payload | Descrição |
-|---|---|---|
-| `join_protocol` | `{ protocolId }` | Entrar na sala do protocolo |
-| `leave_protocol` | `{ protocolId }` | Sair da sala do protocolo |
-
-### Servidor → Cliente
-
-| Evento | Descrição |
+| Perfil | Acessa |
 |---|---|
-| `connected` | Confirmação de conexão autenticada |
-| `new_message` | Nova mensagem no protocolo (broadcast na sala) |
-| `protocol_updated` | Protocolo atualizado (status, canal, agente) |
-| `protocols_list_updated` | Atualização geral da lista (para o dashboard) |
-| `agent_assigned` | Atendente atribuído/transferido |
+| ADMIN / SUPERVISOR | Todos os protocolos |
+| AGENT | Os atribuídos a ele e os da fila (sem atendente) |
+| CLIENT | Apenas os próprios |
 
-### Autenticação WebSocket
+As salas do WebSocket seguem a mesma regra. Os eventos vão para `user:{id}`, `staff` ou `protocol:{id}`, nunca em broadcast global.
 
-O token JWT é passado no handshake:
-```javascript
-const socket = io('http://localhost:3000', {
-  auth: { token: 'Bearer eyJhbGc...' }
-});
-```
+### LGPD
 
----
+| Princípio / direito | Implementação |
+|---|---|
+| Necessidade (art. 6º, III) | Menor privilégio para atendentes; do Telegram guardamos **apenas o chat id** (nada de nome, username ou telefone) |
+| Segurança (art. 46) | bcrypt, AES no segredo TOTP, hash SHA-256 dos códigos de vínculo, token do bot fora do código e dos logs, conteúdo de mensagens fora dos logs |
+| Acesso e portabilidade (art. 18, II e V) | `GET /users/me/data` + botão **Baixar meus dados** no app (JSON com cadastro, protocolos, mensagens de todos os canais e acessos) |
+| Revogação do consentimento (art. 18, IX) | `/desvincular` no bot ou botão no app: apaga o vínculo do Telegram |
+| Rastreabilidade (art. 37) | `AuditLog`: logins, falhas de 2FA, vínculo/desvínculo do Telegram, criação, alteração e atribuição de protocolos, exportação de dados |
 
-## 12. Relatório de Testes de Segurança
+### Outros controles
 
-Todos os testes abaixo foram executados manualmente contra o servidor em desenvolvimento (`http://localhost:3000`).
+Helmet (headers OWASP); rate limit global de 120 req/min por IP, 10/min no login e no 2FA e 5/min na geração de código; DTOs com whitelist; mensagens com no máximo 4000 caracteres.
 
----
+### Testes de segurança
 
-### Teste 1 — Endpoint protegido sem token
+Itens 1 a 6: verificação manual com `curl` contra a API (revalidados em 06/10/2026). Item 7: `e2e-test.mjs`. Itens 8 a 16: automatizados em `tests/e2e-telegram.mjs`.
 
-**Objetivo:** Confirmar que requisições sem JWT são rejeitadas.
-
-```bash
-curl http://localhost:3000/protocols
-```
-
-**Resultado esperado:** `401 Unauthorized`  
-**Resultado obtido:**
-```json
-HTTP 401
-{
-  "message": "Token inválido ou expirado",
-  "error": "Unauthorized",
-  "statusCode": 401
-}
-```
-**Status: APROVADO**
-
----
-
-### Teste 2 — Escalonamento de privilégio (CLIENT acessando rota AGENT+)
-
-**Objetivo:** Confirmar que um `CLIENT` não pode acessar endpoints restritos a atendentes.
-
-```bash
-# 1. Login como cliente
-TOKEN=$(curl -s -X POST http://localhost:3000/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"carlos.cliente@email.com","password":"Claro@2024"}' \
-  | jq -r '.accessToken')
-
-# 2. Tentar acessar stats (somente AGENT/SUPERVISOR/ADMIN)
-curl -H "Authorization: Bearer $TOKEN" http://localhost:3000/protocols/stats
-```
-
-**Resultado esperado:** `403 Forbidden`  
-**Resultado obtido:**
-```json
-HTTP 403
-{
-  "message": "Acesso negado. Requer perfil: ADMIN ou SUPERVISOR ou AGENT",
-  "error": "Forbidden",
-  "statusCode": 403
-}
-```
-**Status: APROVADO**
+| # | Controle | Resultado esperado |
+|---|---|---|
+| 1 | Endpoint protegido sem token | 401 |
+| 2 | CLIENT acessando rota de atendente (`/protocols/stats`) | 403 |
+| 3 | Cliente acessando protocolo de outro cliente | 403 |
+| 4 | Rate limit no login (mais de 10/min por IP) | 429 |
+| 5 | Headers do Helmet presentes | ✅ |
+| 6 | Senha armazenada como `$2b$12$…` | ✅ |
+| 7 | `setupToken` fora de `/auth/totp/*` | 403 (`e2e-test.mjs`) |
+| 8 | Cadastro público com `role: ADMIN` | 400 ✅ automatizado |
+| 9 | `setupToken` abrindo WebSocket | recusado ✅ automatizado |
+| 10 | Cliente entrando na sala WebSocket de outro cliente | recusado ✅ automatizado |
+| 11 | Atendente acessando protocolo de outro atendente (REST e WS) | 403 ✅ automatizado |
+| 12 | Reuso do mesmo código TOTP | 401 ✅ automatizado |
+| 13 | Código de vínculo reutilizado ou inválido | recusado ✅ automatizado |
+| 14 | Cliente forjando canal `TELEGRAM` via REST | gravado como `WEBCHAT` ✅ automatizado |
+| 15 | Token do bot nos logs | nunca aparece ✅ automatizado |
+| 16 | Exportação de dados contendo hash de senha ou segredo TOTP | não contém ✅ automatizado |
 
 ---
 
-### Teste 3 — Isolamento de dados entre clientes (LGPD)
+## 7. Modelo de dados
 
-**Objetivo:** Confirmar que um cliente não pode acessar protocolos de outro cliente.
+```
+User ──< Protocol (clientId / agentId) ──< Message
+ │                                          channel: WEBCHAT | TELEGRAM | PHONE
+ │                                          externalId? (único por canal → idempotência)
+ │                                          deliveryStatus? SENT | FAILED | SIMULATED
+ ├──< ChannelIdentity   canal + externalId (chat id do Telegram) + protocolo ativo
+ ├──< ChannelLinkCode   hash do código de vínculo, expiração, uso único
+ ├──< AuditLog          ação, recurso, IP, data
+ └── totpSecret (AES) · totpEnabled · totpLastUsedStep (anti-replay)
 
-```bash
-# Fernanda tenta acessar protocolo de Carlos
-curl -H "Authorization: Bearer $FERNANDA_TOKEN" \
-  http://localhost:3000/protocols/$CARLOS_PROTOCOL_ID
+Protocol: protocolNumber (CLR-AAAA-NNNNN, único) · status OPEN|IN_PROGRESS|WAITING|CLOSED
+          priority LOW|MEDIUM|HIGH|URGENT · currentChannel (último contato)
 ```
 
-**Resultado esperado:** `403 Forbidden`  
-**Resultado obtido:**
-```json
-HTTP 403
-{
-  "message": "Acesso negado a este protocolo",
-  "error": "Forbidden",
-  "statusCode": 403
-}
-```
-**Status: APROVADO**
+Migrações em `backend/prisma/migrations/`. SQLite na PoC; para produção, basta trocar o `provider` para PostgreSQL.
 
 ---
 
-### Teste 4 — Rate limiting (brute-force de login)
+## 8. API REST
 
-**Objetivo:** Confirmar que múltiplas tentativas de login são bloqueadas.
+Todas as rotas exigem JWT, exceto as marcadas como públicas.
 
-```bash
-# 8 tentativas de login com senha inválida em sequência rápida
-for i in {1..8}; do
-  curl -s -X POST http://localhost:3000/auth/login \
-    -H "Content-Type: application/json" \
-    -d '{"email":"joao.atendente@claro.com.br","password":"senha-errada"}' \
-    | jq -r '.statusCode // .message'
-done
-```
-
-**Resultado obtido:** Após exceder o limite (10/min), resposta muda para:
-```json
-HTTP 429
-{
-  "statusCode": 429,
-  "message": "ThrottlerException: Too Many Requests"
-}
-```
-**Status: APROVADO**
-
----
-
-### Teste 5 — Headers de segurança HTTP (Helmet.js)
-
-**Objetivo:** Confirmar que headers OWASP estão presentes.
-
-```bash
-curl -I http://localhost:3000/auth/login
-```
-
-**Headers verificados na resposta:**
-```
-strict-transport-security: max-age=15552000; includeSubDomains
-x-frame-options: SAMEORIGIN
-x-content-type-options: nosniff
-referrer-policy: no-referrer
-x-ratelimit-limit: 120
-x-ratelimit-remaining: 119
-x-ratelimit-reset: 1735xxx
-```
-**Status: APROVADO**
-
----
-
-### Teste 6 — Hash de senha (bcrypt)
-
-**Objetivo:** Confirmar que as senhas estão armazenadas como hash bcrypt com saltRounds=12.
-
-```bash
-npx ts-node -e "
-const { PrismaClient } = require('@prisma/client');
-const p = new PrismaClient();
-p.user.findUnique({where:{email:'joao.atendente@claro.com.br'}})
-  .then(u => { console.log(u.passwordHash); p.\$disconnect(); });
-"
-```
-
-**Resultado obtido:**
-```
-$2b$12$[hash-bcrypt-completo]
-```
-
-O prefixo `$2b$12$` confirma:
-- `$2b$` → algoritmo bcrypt versão 2b
-- `12` → cost factor (saltRounds=12), equivalente a ~300ms de hash por tentativa
-- Impossível reverter para a senha original
-
-**Status: APROVADO**
-
----
-
-### Teste 7 — Token setupOnly bloqueado em rotas protegidas
-
-**Objetivo:** Confirmar que o `setupToken` (claim `setupOnly: true`) não concede acesso a endpoints além de `/auth/totp/*`.
-
-```bash
-# 1. Login como atendente (sem 2FA configurado)
-SETUP_TOKEN=$(curl -s -X POST http://localhost:3000/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"joao.atendente@claro.com.br","password":"Claro@2024"}' \
-  | jq -r '.setupToken')
-
-echo "requiresTotpSetup: true — setupToken recebido"
-
-# 2. Tentar usar setupToken para acessar protocolos
-curl -H "Authorization: Bearer $SETUP_TOKEN" http://localhost:3000/protocols
-```
-
-**Resultado obtido no login:**
-```json
-{
-  "requiresTotpSetup": true,
-  "setupToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "message": "2FA é obrigatório para este perfil. Configure o autenticador para continuar."
-}
-```
-
-**Resultado ao usar setupToken em `/protocols`:**
-```json
-HTTP 403
-{
-  "message": "Acesso restrito. Configure o 2FA antes de continuar.",
-  "error": "Forbidden",
-  "statusCode": 403
-}
-```
-
-**setupToken funciona normalmente em `/auth/totp/setup`:**
-```json
-HTTP 200
-{
-  "secret": "JBSWY3DPEHPK3PXP",
-  "qrCodeDataUrl": "otpauth://totp/Claro%20Omnichannel...",
-  ...
-}
-```
-**Status: APROVADO — Token restrito funciona corretamente**
-
----
-
-### Resumo dos Testes de Segurança
-
-| # | Teste | Status | HTTP |
+| Método | Rota | Perfis | Descrição |
 |---|---|---|---|
-| 1 | Endpoint sem token | APROVADO | 401 |
-| 2 | Escalonamento CLIENT → AGENT | APROVADO | 403 |
-| 3 | Isolamento de dados entre clientes | APROVADO | 403 |
-| 4 | Rate limiting anti-brute-force | APROVADO | 429 |
-| 5 | Headers de segurança Helmet | APROVADO | — |
-| 6 | Hash bcrypt saltRounds=12 | APROVADO | — |
-| 7 | setupToken restrito a /auth/totp/* | APROVADO | 403 |
-
-**Todos os 7 controles de segurança validados.**
-
----
-
-## 13. Teste E2E com Playwright
-
-O arquivo `e2e-test.mjs` na raiz do projeto executa o fluxo completo de login com 2FA em um browser real (Google Chrome), sem mocks.
-
-### O que o teste valida
-
-```
-FASE 1 — Ativação do 2FA via API
-  1. POST /auth/login → recebe setupToken
-  2. GET /auth/totp/setup → recebe secret TOTP
-  3. otplib.generate(secret) → gera código TOTP real (RFC 6238)
-  4. POST /auth/totp/enable {code} → 2FA ativado
-  5. GET /protocols com setupToken → confirma 403 (token restrito)
-
-FASE 2 — Login completo no browser (Playwright)
-  1. Abre http://localhost:5173
-  2. Preenche e-mail e senha
-  3. Aguarda tela de verificação 2FA (campo placeholder="000000")
-  4. Gera código TOTP em tempo real com otplib
-  5. Insere código e submete
-  6. Aguarda redirecionamento para o dashboard
-  7. Verifica título, contagem de protocolos na tabela e stats
-  8. Salva screenshot em test-result.png
-```
-
-### Saída do teste (log real)
-
-```
-╔══════════════════════════════════════════════════════╗
-║  FASE 1 — Ativando 2FA via API                       ║
-╚══════════════════════════════════════════════════════╝
-
-✅ setupToken recebido (10 min): eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-📋 Mensagem do servidor: "2FA é obrigatório para este perfil. Configure o autenticador para continuar."
-
-🔑 Secret TOTP gerado: JBSWY3DPEHPK3PXP
-🔒 (Armazenado no banco como AES-256: ClaroOmni2024...)
-
-📱 Código TOTP gerado por otplib: 847523
-
-✅ 2FA ativado com sucesso!
-
-[Prova que setupToken é restrito após ativar 2FA]
-  GET /protocols com setupToken → 403 "Acesso restrito. Configure o 2FA antes de continuar."
-
-╔══════════════════════════════════════════════════════╗
-║  FASE 2 — Login completo no Browser (Playwright)     ║
-╚══════════════════════════════════════════════════════╝
-
-🌐 Abrindo http://localhost:5173 ...
-  Página carregada: "Claro Omnichannel — Painel do Atendente"
-
-📝 Preenchendo credenciais...
-  E-mail  : joao.atendente@claro.com.br
-  Senha   : ••••••••••
-
-🔐 Tela de verificação 2FA exibida!
-📱 Código TOTP gerado agora: 392817 (válido ~30s)
-  Código inserido no campo...
-
-✅ AUTENTICAÇÃO COMPLETA! Dashboard carregado.
-  Título da página: "Claro Omnichannel"
-  Protocolos visíveis na tabela: 3
-  Stats do dashboard: [3, 1, 2, 0]
-
-📸 Screenshot salvo em: claro-omnichannel\test-result.png
-
-╔══════════════════════════════════════════════════════╗
-║  ✅ TESTE E2E COMPLETO — TODOS OS PASSOS OK          ║
-╚══════════════════════════════════════════════════════╝
-
-Resumo do fluxo validado:
-  1. Credenciais enviadas → backend exige 2FA
-  2. Tela de OTP exibida no browser
-  3. Código TOTP gerado em tempo real com otplib
-  4. Código aceito → JWT de acesso emitido (15min)
-  5. Dashboard carregado com protocolos reais
-```
-
-### Screenshot do resultado
-
-O arquivo `test-result.png` (gerado automaticamente) mostra o dashboard do atendente com o toast "Bem-vindo, João Atendente!" e a lista de protocolos carregada após autenticação completa com 2FA.
+| POST | `/auth/register` | público | Cadastro (sempre CLIENT) |
+| POST | `/auth/login` | público | Login: tokens, `requiresOtp` ou `requiresTotpSetup` |
+| POST | `/auth/verify-otp` | público | Valida o código TOTP |
+| POST | `/auth/refresh` | público | Renova o accessToken |
+| GET | `/auth/me` | todos | Usuário logado |
+| GET/POST | `/auth/totp/setup` · `/enable` · `/disable` | todos | Gestão do 2FA |
+| GET | `/protocols` | todos | Lista (filtrada por perfil) |
+| POST | `/protocols` | CLIENT | Abre protocolo (canal WEBCHAT) |
+| GET | `/protocols/stats` | staff | Contadores, incluindo protocolos por canal |
+| GET | `/protocols/:id` | com acesso | Detalhe + timeline + `availableChannels` |
+| PATCH | `/protocols/:id` | staff | Status, prioridade |
+| PATCH | `/protocols/:id/assign` | staff | Assumir ou transferir |
+| GET | `/protocols/:id/messages` | com acesso | Timeline |
+| POST | `/protocols/:id/messages` | com acesso | Envia mensagem (cliente = WEBCHAT; atendente escolhe o canal) |
+| GET | `/channels` | todos | Canais e tipo (`REAL` / `MOCK`) |
+| GET | `/channels/telegram` | CLIENT | Status do vínculo |
+| POST | `/channels/telegram/link-code` | CLIENT | Gera código de vínculo + deep link |
+| DELETE | `/channels/telegram/link` | CLIENT | Desvincula |
+| POST | `/channels/phone/mock-call` | staff | 🧪 Simula ligação recebida |
+| GET | `/users/me/data` | todos | Exportação LGPD |
+| GET | `/users` · `/users/:id` | ADMIN, SUPERVISOR | Usuários |
+| GET | `/users/agents` | staff | Atendentes (para transferência) |
+| PATCH | `/users/:id/status` | ADMIN | Ativa ou desativa usuário |
 
 ---
 
-## Diagramas de Fluxo
+## 9. Eventos WebSocket
 
-### Fluxo de Autenticação — 3 Caminhos
+Conexão: `io('http://localhost:3000', { auth: { token: '<accessToken>' } })`. Tokens restritos ou inválidos recebem `unauthorized` e são desconectados.
 
-```
-                POST /auth/login {email, password}
-                           │
-                ┌──────────┼──────────────────────┐
-                ▼          ▼                       ▼
-     Privilegiado     2FA já ativo           CLIENT sem 2FA
-     sem 2FA         (qualquer role)
-         │                 │                       │
-         ▼                 ▼                       ▼
-  { requiresTotpSetup  { requiresOtp: true    { accessToken
-    setupToken (10m) }   tempToken (5m) }       refreshToken }
-         │                 │
-         ▼                 ▼
-  GET /auth/totp/setup  POST /auth/verify-otp
-  (gera secret+QR)       {tempToken, code}
-         │                 │
-         ▼                 ▼
-  POST /auth/totp/enable { accessToken (15m)
-  {code}                   refreshToken (7d)
-         │                 user }
-         ▼
-  Redireciona para
-  tela de login
-  (agora no caminho 2)
-```
+| Direção | Evento | Payload / descrição |
+|---|---|---|
+| cliente → servidor | `join_protocol` | `{ protocolId }`, ack `{ ok, error? }` (checa acesso) |
+| cliente → servidor | `leave_protocol` | `{ protocolId }` |
+| servidor → sala do protocolo | `new_message` | Mensagem de **qualquer canal** |
+| servidor → sala do protocolo | `message_updated` | `{ id, deliveryStatus }` (entrega no Telegram) |
+| servidor → sala do protocolo | `protocol_updated` | Protocolo (status, canal, atendente) |
+| servidor → staff + cliente dono | `protocols_list_updated` | `{ protocolId }` (atualiza listas) |
+| servidor → usuário | `channel_link_updated` | Vínculo do Telegram mudou |
+| servidor → staff | `client_channels_updated` | `{ userId }` (canais do cliente mudaram) |
 
-### Fluxo de Autenticação com 2FA (detalhado)
+---
 
-```
-Cliente                 Backend                 Google Authenticator
-   │                       │                              │
-   │── POST /auth/login ──►│                              │
-   │   {email, password}   │                              │
-   │                       │── bcrypt.compare ──          │
-   │◄── {requiresOtp:true  │                              │
-   │     tempToken} ───────│                              │
-   │                       │                              │
-   │                       │              ┌───────────────│
-   │                       │              │  TOTP Code    │
-   │                       │              │  (6 dígitos)  │
-   │                       │              └───────────────│
-   │                       │                              │
-   │── POST /auth/verify ──►                              │
-   │   {tempToken, code}   │                              │
-   │                       │── otplib.verify ──           │
-   │◄── {accessToken,      │                              │
-   │     refreshToken,     │                              │
-   │     user} ────────────│                              │
-```
+## 10. Testes
 
-### Fluxo Omnichannel de Mensagem
+| Comando | O que cobre | Precisa de servidores rodando? |
+|---|---|---|
+| `npm run test:unit` | **33 testes Jest**: comandos do bot, criar/reaproveitar protocolo, ocultação do token, registro de canais, regra de acesso | Não |
+| `npm run test:e2e:telegram` | **29 verificações** com backend real e Bot API **fake**: vínculo, protocolo, troca de canal, entrega, WebSocket, idempotência, telefone mock, segurança e LGPD | Não (sobe tudo isolado na porta 3100, banco `e2e.db`) |
+| `npm run test:e2e:ui` | **11 verificações no Chrome** (Playwright): a jornada completa com painel e app abertos ao mesmo tempo | Não (portas 3200/5273/5274) |
+| `npm run test:e2e:2fa` | Ativação do 2FA via API + login com TOTP no navegador | **Sim** (`npm run dev`) |
+| `npm test` | Unitários + e2e Telegram + e2e UI | Não |
+
+Como não é possível automatizar um usuário real do Telegram, os testes sobem um **servidor fake da Bot API** (`tests/fake-telegram-server.mjs`) e apontam o backend para ele com `TELEGRAM_API_BASE`. O resto (long polling, banco, REST, WebSocket, navegador) roda de verdade, e o token real nunca é usado nos testes. Para ver o navegador: `HEADED=1 npm run test:e2e:ui`. As capturas ficam em `test-results/`.
+
+---
+
+## 11. Estrutura de pastas
 
 ```
-Cliente (PWA)         Backend              Atendente (Web)
-     │                   │                       │
-     │── POST /messages ─►│                       │
-     │  {content, channel}│                       │
-     │                   │── Salva no DB ──        │
-     │                   │── Socket.emit ─────────►│
-     │                   │   new_message           │
-     │◄── 200 {message} ─│                        │
-     │                   │                        │
-     │                 Timeline unificada:         │
-     │                 [msg_whatsapp,              │
-     │                  msg_phone,                 │
-     │                  msg_webchat] ◄────────────│
+claro-omnichannel/
+├── backend/                       API NestJS
+│   ├── .env.example               modelo de variáveis (o .env real não é versionado)
+│   ├── prisma/                    schema, migrações e seed
+│   └── src/
+│       ├── config/                carregamento e validação do .env
+│       ├── auth/                  JWT + TOTP (2FA) + bcrypt
+│       ├── common/                guards (JWT, Roles) e decorators
+│       ├── events/                eventos de domínio
+│       ├── protocols/             núcleo: protocolo único + regra de acesso
+│       ├── messages/              núcleo: timeline unificada
+│       ├── gateway/               WebSocket (Socket.io)
+│       ├── users/                 usuários + exportação LGPD
+│       └── channels/              canais plugáveis
+│           ├── channel.types.ts   contrato ChannelAdapter
+│           ├── channel-registry.service.ts / channel-dispatcher.service.ts
+│           ├── webchat/           WebChat (real)
+│           ├── telegram/          Telegram (real): API client, long polling, bot, vínculo
+│           └── phone-mock/        Telefone (MOCK assumido)
+├── frontend-agent/                painel do atendente (React + Vite, :5173)
+├── frontend-client/               app do cliente / WebChat (React PWA, :5174)
+├── tests/                         e2e do Telegram e de interface + Bot API fake
+├── e2e-test.mjs                   e2e de login com 2FA
+├── docs/screenshots/              capturas usadas neste README
+└── CLAUDE.md                      contexto técnico e decisões do projeto
 ```
 
 ---
 
-## Observações sobre o PoC
+## 12. Limitações e próximos passos
 
-- **SQLite** é usado para facilitar execução local. Em produção, substituir por **PostgreSQL** (alterar `provider` no `schema.prisma` e `DATABASE_URL`).
-- **Simulador de canais:** O endpoint `POST /protocols/:id/messages/simulate` simula a entrada de mensagens como se viessem de WhatsApp ou Telefone (sem integração real com APIs externas).
-- **HTTPS:** Em produção, toda comunicação deve ocorrer via HTTPS. O Helmet já configura o header HSTS para quando for implantado com TLS.
-- **Tokens:** Em produção, os refresh tokens devem ser armazenados como cookies `httpOnly; Secure; SameSite=Strict` para evitar XSS.
-- **2FA em produção:** Considerar backup codes (códigos de recuperação de uso único) para usuários que perdem acesso ao autenticador.
+- **Banco:** SQLite para rodar localmente. Em produção, PostgreSQL com backups e criptografia em repouso.
+- **Escala:** o long polling exige uma única instância consumindo o bot. Com várias réplicas da API, usar **webhook** (HTTPS público) e Socket.io com adapter Redis.
+- **Sessões:** o refresh token é *stateless*, então logout não o revoga. Próximo passo: rotação com lista de revogação, ou cookies `httpOnly; Secure; SameSite`.
+- **Telefone:** substituir o mock por um adapter real (Twilio Voice, Amazon Connect) com transcrição da ligação.
+- **WhatsApp Business:** novo adapter (requer conta verificada pela Meta).
+- **LGPD:** política de retenção e anonimização automática de protocolos antigos; termo de consentimento no vínculo de canais.
+- **Produto:** anexos (fotos do modem, faturas), pesquisa de satisfação (CSAT) ao encerrar, SLA por prioridade, paginação de listas e mensagens, tela de administração de usuários.
+- **2FA:** códigos de recuperação de uso único.
 
 ---
 
-*Projeto desenvolvido como Proof of Concept para a disciplina de Engenharia de Software.*
+*Projeto acadêmico (Proof of Concept) — FIAP × Claro.*
