@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { ArrowLeft, Send, RefreshCw, MessageSquare, Phone, Globe, Mail, Wifi, Bot } from 'lucide-react';
 import api from '../api/axios';
 import { getSocket } from '../api/socket';
+import { useLiveResync } from '../hooks/useLiveResync';
 import { useAuthStore } from '../store/auth.store';
 
 interface Message {
@@ -62,6 +63,9 @@ export default function ProtocolDetail() {
       setLoading(false);
     }
   }, [id, navigate]);
+
+  // Recupera mensagens/status que chegaram enquanto a conexão estava caída
+  useLiveResync(fetchProtocol);
 
   useEffect(() => {
     fetchProtocol();

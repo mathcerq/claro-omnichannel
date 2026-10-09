@@ -81,17 +81,29 @@ export async function startTestBackend({ port = 3100, dbName = 'e2e.db', corsOri
     execSync('npm run build', { cwd: BACKEND, stdio: 'ignore', shell: true });
   }
 
-  const child = spawn(process.execPath, ['dist/main.js'], { cwd: BACKEND, env, stdio: ['ignore', 'pipe', 'pipe'] });
   const state = { log: '' };
-  child.stdout.on('data', (d) => (state.log += d));
-  child.stderr.on('data', (d) => (state.log += d));
-  child.on('exit', (code) => {
-    if (code) console.error(`\nBackend de teste saiu com código ${code}\n${state.log.slice(-2000)}`);
-  });
-
   const url = `http://localhost:${port}`;
-  await waitFor(() => fetch(`${url}/channels`).then((r) => r.status === 401), { timeout: 30000, label: 'backend subir' });
-  await waitFor(() => state.log.includes('long polling iniciado'), { timeout: 10000, label: 'long polling' });
+  let child;
+
+  const startProcess = async () => {
+    const logStart = state.log.length;
+    child = spawn(process.execPath, ['dist/main.js'], { cwd: BACKEND, env, stdio: ['ignore', 'pipe', 'pipe'] });
+    child.stdout.on('data', (d) => (state.log += d));
+    child.stderr.on('data', (d) => (state.log += d));
+    child.on('exit', (code) => {
+      if (code) console.error(`\nBackend de teste saiu com código ${code}\n${state.log.slice(-2000)}`);
+    });
+    await waitFor(() => fetch(`${url}/channels`).then((r) => r.status === 401), { timeout: 30000, label: 'backend subir' });
+    await waitFor(() => state.log.slice(logStart).includes('long polling iniciado'), { timeout: 10000, label: 'long polling' });
+  };
+  const stopProcess = async () => {
+    if (child.exitCode === null) {
+      child.kill();
+      await new Promise((r) => child.once('exit', r));
+    }
+  };
+
+  await startProcess();
 
   const client = createApiClient(url);
   return {
@@ -102,11 +114,16 @@ export async function startTestBackend({ port = 3100, dbName = 'e2e.db', corsOri
     get log() {
       return state.log;
     },
+    /** URL do banco SQLite deste backend (para o teste mexer nele diretamente) */
+    dbUrl: `file:${dbFile.replace(/\\/g, '/')}`,
+    /** Derruba o backend; `whileDown` roda com ele fora do ar; depois sobe de novo (mesmo banco). */
+    async restart(whileDown = async () => {}) {
+      await stopProcess();
+      await whileDown();
+      await startProcess();
+    },
     async stop() {
-      if (child.exitCode === null) {
-        child.kill();
-        await new Promise((r) => child.once('exit', r));
-      }
+      await stopProcess();
       await fake.close();
       for (const f of [dbFile, `${dbFile}-journal`]) if (existsSync(f)) rmSync(f, { force: true });
     },

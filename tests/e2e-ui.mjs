@@ -12,6 +12,7 @@
  */
 import { spawn } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
@@ -193,6 +194,28 @@ async function main() {
     await agent.reload();
     await agent.getByText('Canais do cliente').waitFor({ timeout: 8000 });
     await agent.getByText('O sinal some por volta das 21h').waitFor();
+  });
+
+  await step('atendente encerra e o app do cliente mostra "Protocolo encerrado" na hora', async () => {
+    await agent.getByRole('button', { name: 'Encerrar' }).click();
+    await client.getByText('Protocolo encerrado').waitFor({ timeout: 8000 });
+  });
+
+  await step('servidor reinicia: ao reconectar, o app recupera o que mudou enquanto estava fora', async () => {
+    await client.goto(`${CLIENT_URL}/`);
+    await client.getByText('Meus Protocolos').waitFor();
+    // Com o backend fora do ar, um protocolo novo surge no banco (nenhum evento é emitido)
+    const requireBackend = createRequire(path.join(ROOT, 'backend', 'package.json'));
+    const { PrismaClient } = requireBackend('@prisma/client');
+    await env.restart(async () => {
+      const prisma = new PrismaClient({ datasources: { db: { url: env.dbUrl } } });
+      const carlos = await prisma.user.findUnique({ where: { email: 'carlos.cliente@email.com' } });
+      await prisma.protocol.create({
+        data: { protocolNumber: 'CLR-2026-99999', title: 'Criado enquanto o servidor estava fora', clientId: carlos.id, aiStatus: 'OFF' },
+      });
+      await prisma.$disconnect();
+    });
+    await client.getByText('CLR-2026-99999').waitFor({ timeout: 30000 });
   });
 
   await step('cliente abre a configuração opcional de 2FA e o QR Code aparece', async () => {

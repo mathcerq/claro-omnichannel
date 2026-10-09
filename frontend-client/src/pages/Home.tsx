@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import api from '../api/axios';
 import { useAuthStore } from '../store/auth.store';
 import { getSocket } from '../api/socket';
+import { useLiveResync } from '../hooks/useLiveResync';
 
 interface Protocol {
   id: string;
@@ -53,6 +54,12 @@ export default function Home() {
   const fetchTelegram = useCallback(() => {
     api.get('/channels/telegram').then((r) => setTelegram(r.data)).catch(() => {});
   }, []);
+
+  // Recupera o que mudou enquanto a conexão estava caída
+  useLiveResync(() => {
+    fetchProtocols();
+    fetchTelegram();
+  });
 
   useEffect(() => {
     fetchProtocols();

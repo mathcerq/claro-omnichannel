@@ -440,7 +440,7 @@ Conexão: `io('http://localhost:3000', { auth: { token: '<accessToken>' } })`. T
 | `npm run test:unit` | **51 testes Jest**: comandos do bot, criar/reaproveitar protocolo, ocultação do token, registro de canais, regra de acesso, assistente (motor de regras, motor Ollama com fetch simulado, travas) | Não |
 | `npm run test:e2e:telegram` | **29 verificações** com backend real e Bot API **fake**: vínculo, protocolo, troca de canal, entrega, WebSocket, idempotência, telefone mock, segurança e LGPD | Não (sobe tudo isolado na porta 3100, banco `e2e.db`) |
 | `npm run test:e2e:assistant` | **12 verificações** da assistente integrada (motor de regras, determinístico): resposta no Telegram e no WebChat, transferência com resumo, saída da IA quando o humano assume, resolução sem humano, métricas | Não (porta 3300) |
-| `npm run test:e2e:ui` | **14 verificações no Chrome** (Playwright): a jornada completa com painel e app abertos ao mesmo tempo, incluindo a configuração do 2FA pela tela | Não (portas 3200/5273/5274) |
+| `npm run test:e2e:ui` | **16 verificações no Chrome** (Playwright): a jornada completa com painel e app abertos ao mesmo tempo, incluindo a configuração do 2FA pela tela, encerramento ao vivo e recuperação após o servidor reiniciar | Não (portas 3200/5273/5274) |
 | `npm run test:e2e:2fa` | Ativação do 2FA via API + login com TOTP no navegador | **Sim** (`npm run dev`) |
 | `npm test` | Unitários + e2e Telegram + e2e assistente + e2e UI | Não |
 | `cd backend && npx ts-node scripts/assistant-scenarios.ts` | Avaliação da **IA real** (Ollama) em conversas de exemplo | Ollama rodando |

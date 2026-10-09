@@ -4,6 +4,7 @@ import { ArrowLeft, User, UserCheck, RefreshCw, CheckCircle, Clock, XCircle, Ale
 import toast from 'react-hot-toast';
 import api from '../api/axios';
 import { getSocket } from '../api/socket';
+import { useLiveResync } from '../hooks/useLiveResync';
 import { useAuthStore } from '../store/auth.store';
 import { useProtocolsStore, Protocol, Message } from '../store/protocols.store';
 import ChatPanel from '../components/ChatPanel';
@@ -32,6 +33,9 @@ export default function ProtocolDetail() {
       setLoading(false);
     }
   }, [id, setSelectedProtocol, navigate]);
+
+  // Recupera mensagens/status que chegaram enquanto a conexão estava caída
+  useLiveResync(fetchProtocol);
 
   useEffect(() => {
     fetchProtocol();
