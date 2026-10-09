@@ -22,3 +22,6 @@ coverage/
 # Artefatos de teste
 test-results/
 playwright-report/
+
+# Pacote de entrega da Sprint 4 (gerado)
+docs/sprint4/*.zip

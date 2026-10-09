@@ -12,7 +12,8 @@
     "test:e2e:ui": "node tests/e2e-ui.mjs",
     "test:e2e:assistant": "node tests/e2e-assistant.mjs",
     "docs:screenshots": "node tests/capture-docs-screenshots.mjs",
-    "demo:check": "node scripts/demo-check.mjs"
+    "demo:check": "node scripts/demo-check.mjs",
+    "docs:sprint4": "node docs/sprint4/gerar-documento.mjs"
   },
   "dependencies": {
     "crypto-js": "^4.2.0",
@@ -21,6 +22,7 @@
     "socket.io-client": "^4.8.4"
   },
   "devDependencies": {
-    "concurrently": "^9.2.4"
+    "concurrently": "^9.2.4",
+    "docx": "^9.9.0"
   }
 }

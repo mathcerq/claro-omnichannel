@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<title>Diagramas — Claro Omnichannel</title>
+<style>
+  :root { --red:#e3000f; --ink:#1f2937; --muted:#6b7280; --line:#cbd5e1; --bg:#ffffff; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #f3f4f6; font: 14px/1.4 "Segoe UI", Arial, sans-serif; color: var(--ink); }
+  .diagram { width: 1200px; background: var(--bg); padding: 28px 32px; margin: 0 0 24px; }
+  h2 { margin: 0 0 18px; font-size: 20px; }
+  h2 small { font-weight: 400; color: var(--muted); font-size: 13px; margin-left: 8px; }
+  .row { display: flex; gap: 18px; align-items: stretch; }
+  .col { display: flex; flex-direction: column; gap: 14px; }
+  .box { border: 2px solid var(--line); border-radius: 12px; padding: 12px 14px; background: #fff; }
+  .box h3 { margin: 0 0 4px; font-size: 15px; }
+  .box p { margin: 0; color: var(--muted); font-size: 12.5px; }
+  .tag { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 999px; margin-left: 6px; vertical-align: 2px; }
+  .real { background: #dcfce7; color: #166534; }
+  .mock { background: #fef3c7; color: #92400e; }
+  .ia { background: #e0e7ff; color: #3730a3; }
+  .core { border-color: var(--red); background: #fff5f5; }
+  .backend { border: 2px dashed #94a3b8; border-radius: 16px; padding: 14px; background: #f8fafc; flex: 1; }
+  .backend > .title { font-weight: 700; margin-bottom: 10px; }
+  .arrow { display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 12px; text-align: center; min-width: 90px; }
+  .arrow b { display: block; font-size: 22px; color: #94a3b8; line-height: 1; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+  .legend { margin-top: 14px; color: var(--muted); font-size: 12px; }
+  .flow { display: flex; align-items: center; gap: 10px; flex-wrap: nowrap; }
+  .step { border: 2px solid var(--line); border-radius: 12px; padding: 10px 12px; width: 190px; background: #fff; }
+  .step .n { font-weight: 700; color: var(--red); font-size: 12px; }
+  .step h4 { margin: 2px 0 4px; font-size: 14px; }
+  .step p { margin: 0; font-size: 12px; color: var(--muted); }
+  .sep { color: #94a3b8; font-size: 22px; }
+  .timeline { margin-top: 18px; border: 2px solid var(--red); border-radius: 12px; padding: 12px 16px; background: #fff5f5; }
+  .msg { display: flex; gap: 10px; padding: 4px 0; font-size: 13px; }
+  .msg .ch { width: 92px; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<!-- 1. Arquitetura de componentes -->
+<div class="diagram" id="arquitetura">
+  <h2>Arquitetura da solução <small>monólito modular NestJS · eventos de domínio · canais plugáveis</small></h2>
+  <div class="row">
+    <div class="col" style="width:230px">
+      <div class="box"><h3>App do cliente <span class="tag real">real</span></h3><p>React PWA (:5174) · WebChat, vínculo do Telegram, 2FA opcional, exportar dados</p></div>
+      <div class="box"><h3>Painel do atendente <span class="tag real">real</span></h3><p>React (:5173) · fila em tempo real, timeline unificada, 2FA obrigatório</p></div>
+      <div class="box"><h3>Telegram <span class="tag real">real</span></h3><p>Bot @claro_omnichannel_mathcerq_bot · Bot API (long polling)</p></div>
+      <div class="box"><h3>Ollama <span class="tag ia">IA local</span></h3><p>Modelo Qwen3 4B na GPU da máquina · sem custo, sem dados para terceiros</p></div>
+    </div>
+    <div class="arrow"><div><b>⇄</b>REST + WebSocket<br><br><b>⇄</b>Bot API<br><br><b>⇄</b>/api/chat + tools</div></div>
+    <div class="backend">
+      <div class="title">Backend — NestJS (:3000) · Prisma · SQLite</div>
+      <div class="grid2">
+        <div class="box core"><h3>Núcleo: Protocolos</h3><p>Protocolo único CLR-AAAA-NNNNN · regra de acesso (menor privilégio)</p></div>
+        <div class="box core"><h3>Núcleo: Mensagens</h3><p>Timeline unificada · entrada idempotente (canal + id externo)</p></div>
+      </div>
+      <div style="text-align:center;color:#94a3b8;margin:8px 0;font-size:12px">↓ publica eventos de domínio (message.created, protocol.updated…) ↓</div>
+      <div class="grid3">
+        <div class="box"><h3>Gateway WebSocket</h3><p>Socket.io com salas por usuário, equipe e protocolo</p></div>
+        <div class="box"><h3>Registro de canais</h3><p>WebChat <span class="tag real">real</span> · Telegram <span class="tag real">real</span> · Telefone <span class="tag mock">mock</span></p></div>
+        <div class="box"><h3>Assistente virtual</h3><p>Clara: motor Ollama + motor de regras (reserva) + travas no código</p></div>
+      </div>
+      <div class="grid3" style="margin-top:12px">
+        <div class="box"><h3>Autenticação</h3><p>JWT + refresh · 2FA TOTP (anti-replay) · bcrypt</p></div>
+        <div class="box"><h3>Segurança</h3><p>Guards: Throttler → JWT → Roles · Helmet · DTOs validados</p></div>
+        <div class="box"><h3>LGPD</h3><p>Auditoria · exportação de dados · vínculo revogável</p></div>
+      </div>
+    </div>
+  </div>
+  <div class="legend"><span class="tag real">real</span> integração funcionando · <span class="tag mock">mock</span> simulado de propósito (dados inventados) · <span class="tag ia">IA local</span> modelo aberto rodando na própria máquina</div>
+</div>
+
+<!-- 2. Fluxo omnichannel -->
+<div class="diagram" id="fluxo-omnichannel">
+  <h2>Fluxo omnichannel <small>um protocolo, uma timeline — o histórico não se perde ao trocar de canal</small></h2>
+  <div class="flow">
+    <div class="step"><div class="n">1 · Telegram</div><h4>Cliente abre o chamado</h4><p>/novo ou texto livre → protocolo CLR-2026-NNNNN</p></div>
+    <div class="sep">→</div>
+    <div class="step"><div class="n">2 · IA</div><h4>Clara atende</h4><p>Consulta rede e modem; resolve ou transfere com resumo</p></div>
+    <div class="sep">→</div>
+    <div class="step"><div class="n">3 · Painel</div><h4>Atendente assume</h4><p>Lê o resumo e responde pelo Telegram (entrega confirmada)</p></div>
+    <div class="sep">→</div>
+    <div class="step"><div class="n">4 · WebChat</div><h4>Cliente troca de canal</h4><p>Continua pelo app: mesmo número, mesmas mensagens</p></div>
+    <div class="sep">→</div>
+    <div class="step"><div class="n">5 · Telefone (mock)</div><h4>Ligação registrada</h4><p>Entra na mesma timeline</p></div>
+  </div>
+  <div class="timeline">
+    <div style="font-weight:700;margin-bottom:6px">Timeline do protocolo CLR-2026-49426 (exemplo real)</div>
+    <div class="msg"><span class="ch">✈️ Telegram</span><span>Cliente: "A conexão cai todo dia depois das 22h"</span></div>
+    <div class="msg"><span class="ch">✈️ Telegram</span><span>João (atendente): "Vou verificar o sinal da sua região. Pode reiniciar o modem?" — ✓ entregue no Telegram</span></div>
+    <div class="msg"><span class="ch">🌐 WebChat</span><span>Cliente: "Reiniciei o modem, mas continua caindo. Estou escrevendo pelo site agora."</span></div>
+    <div class="msg"><span class="ch">📞 Telefone</span><span>[Ligação simulada] Cliente confirmou o endereço para a visita técnica.</span></div>
+  </div>
+</div>
+
+<!-- 3. Fluxo da assistente -->
+<div class="diagram" id="fluxo-ia">
+  <h2>Assistente virtual (IA) <small>a IA conversa e consulta; as decisões críticas são regras no código</small></h2>
+  <div class="flow">
+    <div class="step"><div class="n">Entrada</div><h4>Mensagem do cliente</h4><p>WebChat ou Telegram, em protocolo atendido pela IA</p></div>
+    <div class="sep">→</div>
+    <div class="step" style="border-color:#e3000f"><div class="n">Trava (código)</div><h4>Precisa de humano?</h4><p>Pedido de atendente, cancelamento, contestação, Procon → transfere na hora</p></div>
+    <div class="sep">→</div>
+    <div class="step" style="border-color:#6366f1"><div class="n">IA local</div><h4>Qwen3 4B + ferramentas</h4><p>Fatura · 2ª via · rede da região · diagnóstico/reinício do modem · visita técnica</p></div>
+    <div class="sep">→</div>
+    <div class="step" style="border-color:#e3000f"><div class="n">Trava (código)</div><h4>Ação prometida?</h4><p>"Vou transferir" ou "resolveu, obrigado" sem a ferramenta → o sistema executa</p></div>
+    <div class="sep">→</div>
+    <div class="step"><div class="n">Saída</div><h4>Resolve ou transfere</h4><p>Resolvido pela IA, ou transferido com motivo e resumo para o atendente</p></div>
+  </div>
+  <div class="legend" style="margin-top:16px">Se o Ollama estiver indisponível, o <b>motor de regras</b> (palavras-chave + as mesmas ferramentas) assume automaticamente. Quando um atendente assume ou escreve, a IA para de responder naquele protocolo.</div>
+</div>
+
+</body>
+</html>
