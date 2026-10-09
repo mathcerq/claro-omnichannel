@@ -10,7 +10,7 @@ export default function TotpSetup() {
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const [step, setStep] = useState<'info' | 'qr' | 'verify' | 'done'>('info');
-  const [qrData, setQrData] = useState<{ secret: string; qrCodeDataUrl: string } | null>(null);
+  const [qrData, setQrData] = useState<{ secret: string; otpAuthUrl: string } | null>(null);
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -112,7 +112,7 @@ export default function TotpSetup() {
             {qrData && (
               <div className="flex justify-center">
                 <div className="p-4 bg-white border-2 border-gray-100 rounded-2xl">
-                  <QRCodeSVG value={qrData.qrCodeDataUrl} size={200} />
+                  <QRCodeSVG value={qrData.otpAuthUrl} size={200} />
                 </div>
               </div>
             )}

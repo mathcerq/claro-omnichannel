@@ -18,7 +18,7 @@ export default function Login() {
   const [otpCode, setOtpCode] = useState('');
   const [tempToken, setTempToken] = useState('');
   const [setupToken, setSetupToken] = useState('');
-  const [qrData, setQrData] = useState<{ secret: string; qrCodeDataUrl: string } | null>(null);
+  const [qrData, setQrData] = useState<{ secret: string; otpAuthUrl: string } | null>(null);
   const [setupCode, setSetupCode] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -214,7 +214,7 @@ export default function Login() {
               {qrData && (
                 <div className="flex justify-center">
                   <div className="p-3 bg-white rounded-xl">
-                    <QRCodeSVG value={qrData.qrCodeDataUrl} size={190} />
+                    <QRCodeSVG value={qrData.otpAuthUrl} size={190} />
                   </div>
                 </div>
               )}
