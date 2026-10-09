@@ -77,8 +77,14 @@ export async function startTestBackend({ port = 3100, dbName = 'e2e.db', corsOri
   };
 
   execSync('npx prisma migrate reset --force --skip-generate', { cwd: BACKEND, env, stdio: 'ignore' });
-  if (!existsSync(path.join(BACKEND, 'dist', 'main.js')) || process.env.E2E_BUILD !== '0') {
-    execSync('npm run build', { cwd: BACKEND, stdio: 'ignore', shell: true });
+  // Compila numa pasta PRÓPRIA (dist-e2e): a dist/ é usada pelo `npm run dev` e
+  // recompilá-la derrubaria o servidor de desenvolvimento em execução.
+  if (!existsSync(path.join(BACKEND, 'dist-e2e', 'main.js')) || process.env.E2E_BUILD !== '0') {
+    execSync('npx tsc -p tsconfig.build.json --outDir dist-e2e --tsBuildInfoFile dist-e2e/.tsbuildinfo', {
+      cwd: BACKEND,
+      stdio: 'ignore',
+      shell: true,
+    });
   }
 
   const state = { log: '' };
@@ -87,7 +93,7 @@ export async function startTestBackend({ port = 3100, dbName = 'e2e.db', corsOri
 
   const startProcess = async () => {
     const logStart = state.log.length;
-    child = spawn(process.execPath, ['dist/main.js'], { cwd: BACKEND, env, stdio: ['ignore', 'pipe', 'pipe'] });
+    child = spawn(process.execPath, ['dist-e2e/main.js'], { cwd: BACKEND, env, stdio: ['ignore', 'pipe', 'pipe'] });
     child.stdout.on('data', (d) => (state.log += d));
     child.stderr.on('data', (d) => (state.log += d));
     child.on('exit', (code) => {
