@@ -89,6 +89,27 @@ export class MessagesService {
     }
   }
 
+  /**
+   * Resposta da assistente virtual (IA). Entra na mesma timeline, com
+   * senderRole BOT, e é entregue pelo canal escolhido como qualquer resposta.
+   */
+  async createBotMessage(input: {
+    protocolId: string;
+    senderId: string;
+    channel: string;
+    content: string;
+    metadata?: Record<string, unknown>;
+  }) {
+    const protocol = await this.getWritableProtocol(input.protocolId);
+    return this.persist(protocol, {
+      content: input.content.slice(0, 4000),
+      channel: input.channel,
+      senderRole: 'BOT',
+      senderId: input.senderId,
+      metadata: input.metadata ? JSON.stringify(input.metadata) : undefined,
+    });
+  }
+
   async findByProtocol(protocolId: string, userId: string, userRole: string) {
     const protocol = await this.prisma.protocol.findUnique({ where: { id: protocolId } });
     if (!protocol) throw new NotFoundException('Protocolo não encontrado');

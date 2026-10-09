@@ -12,6 +12,7 @@ export const DomainEvents = {
   PROTOCOL_UPDATED: 'protocol.updated',
   CHANNEL_LINKED: 'channel.linked',
   CHANNEL_UNLINKED: 'channel.unlinked',
+  ASSISTANT_TYPING: 'assistant.typing',
 } as const;
 
 export interface MessageCreatedEvent {
@@ -44,6 +45,13 @@ export interface ProtocolChangedEvent {
   protocol: Record<string, any>;
   /** Campos alterados (apenas em protocol.updated) */
   changes?: Record<string, unknown>;
+}
+
+export interface AssistantTypingEvent {
+  protocolId: string;
+  clientId: string;
+  channel: string;
+  typing: boolean;
 }
 
 export interface ChannelLinkEvent {

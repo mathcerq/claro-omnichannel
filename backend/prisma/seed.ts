@@ -40,6 +40,7 @@ async function main() {
       status: 'IN_PROGRESS',
       priority: 'HIGH',
       currentChannel: 'WEBCHAT',
+      aiStatus: 'HUMAN', // histórico anterior à assistente virtual
       clientId: client1.id,
       agentId: agent1.id,
     },
@@ -55,6 +56,7 @@ async function main() {
       status: 'OPEN',
       priority: 'MEDIUM',
       currentChannel: 'TELEGRAM',
+      aiStatus: 'HUMAN',
       clientId: client2.id,
     },
   });
@@ -69,6 +71,7 @@ async function main() {
       status: 'WAITING',
       priority: 'URGENT',
       currentChannel: 'PHONE',
+      aiStatus: 'HUMAN',
       clientId: client3.id,
       agentId: agent2.id,
     },

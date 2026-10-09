@@ -14,6 +14,7 @@ import { OnEvent } from '@nestjs/event-emitter';
 import { PrismaService } from '../prisma/prisma.service';
 import { STAFF_ROLES, canAccessProtocol } from '../protocols/protocol-access';
 import {
+  AssistantTypingEvent,
   ChannelLinkEvent,
   DomainEvents,
   MessageCreatedEvent,
@@ -155,6 +156,13 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   onProtocolChanged(event: ProtocolChangedEvent) {
     this.server.to(`protocol:${event.protocolId}`).emit('protocol_updated', event.protocol);
     this.notifyListUpdated(event.protocolId, event.clientId);
+  }
+
+  @OnEvent(DomainEvents.ASSISTANT_TYPING)
+  onAssistantTyping(event: AssistantTypingEvent) {
+    this.server
+      .to(`protocol:${event.protocolId}`)
+      .emit('assistant_typing', { protocolId: event.protocolId, typing: event.typing });
   }
 
   @OnEvent(DomainEvents.CHANNEL_LINKED)

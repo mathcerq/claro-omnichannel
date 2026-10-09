@@ -55,6 +55,11 @@ export class TelegramApiClient {
     );
   }
 
+  /** Mostra "digitando..." no chat (dura ~5s ou até a próxima mensagem). */
+  sendChatAction(chatId: string | number, action: 'typing') {
+    return this.call<boolean>('sendChatAction', { chat_id: chatId, action });
+  }
+
   /** Envia texto puro (sem parse_mode) — conteúdo do usuário nunca é interpretado como HTML/Markdown. */
   async sendMessage(chatId: string | number, text: string): Promise<TelegramMessage> {
     const params = { chat_id: chatId, text: text.slice(0, 4096), disable_web_page_preview: true };

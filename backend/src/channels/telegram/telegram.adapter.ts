@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { ChannelAdapter, ChannelInfo, DeliveryStatus, OutboundMessage } from '../channel.types';
-import { DomainEvents, ProtocolChangedEvent } from '../../events/domain-events';
+import { AssistantTypingEvent, DomainEvents, ProtocolChangedEvent } from '../../events/domain-events';
 import { TelegramApiClient } from './telegram-api.client';
 import { TelegramLinkService } from './telegram-link.service';
 import { TelegramPollingService } from './telegram-polling.service';
@@ -46,13 +46,23 @@ export class TelegramAdapter implements ChannelAdapter {
 
     await this.api.sendMessage(
       identity.externalId,
-      texts.agentReply(message.senderName, message.content, message.protocolNumber),
+      message.senderRole === 'BOT'
+        ? texts.assistantReply(message.senderName, message.content)
+        : texts.agentReply(message.senderName, message.content, message.protocolNumber),
     );
     // A resposta do atendente torna este o protocolo ativo da conversa
     if (identity.activeProtocolId !== message.protocolId) {
       await this.links.setActiveProtocol(identity.id, message.protocolId);
     }
     return 'SENT';
+  }
+
+  /** "digitando..." enquanto a assistente virtual prepara a resposta */
+  @OnEvent(DomainEvents.ASSISTANT_TYPING, { async: true, promisify: true })
+  async onAssistantTyping(event: AssistantTypingEvent) {
+    if (!event.typing || event.channel !== 'TELEGRAM' || !this.info().enabled) return;
+    const identity = await this.links.findByUser(event.clientId);
+    if (identity) await this.api.sendChatAction(identity.externalId, 'typing').catch(() => undefined);
   }
 
   /** Avisos de mudança no protocolo para quem está sendo atendido pelo Telegram. */

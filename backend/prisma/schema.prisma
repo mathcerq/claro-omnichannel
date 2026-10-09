@@ -47,6 +47,15 @@ model Protocol {
   agent   User?   @relation("AgentProtocols", fields: [agentId], references: [id])
 
   messages  Message[]
+
+  /// Assistente virtual (IA) — ACTIVE: a IA está atendendo; HANDED_OFF: a IA
+  /// transferiu para humano; RESOLVED: a IA resolveu; HUMAN: atendente assumiu;
+  /// OFF: IA desligada para este protocolo.
+  aiStatus        String  @default("ACTIVE")
+  /// Resumo do caso escrito pela IA na transferência (o atendente não precisa reperguntar)
+  aiSummary       String?
+  aiHandoffReason String?
+
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   closedAt  DateTime?

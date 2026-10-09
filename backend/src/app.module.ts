@@ -12,6 +12,7 @@ import { GatewayModule } from './gateway/gateway.module';
 import { ChannelsModule } from './channels/channels.module';
 import { TelegramModule } from './channels/telegram/telegram.module';
 import { PhoneMockModule } from './channels/phone-mock/phone-mock.module';
+import { AssistantModule } from './assistant/assistant.module';
 import { validateEnv } from './config/env.validation';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
@@ -31,6 +32,8 @@ import { RolesGuard } from './common/guards/roles.guard';
     ChannelsModule, // infraestrutura + WebChat (real)
     TelegramModule, // Telegram (real, bot com long polling)
     PhoneMockModule, // Telefone (MOCK assumido, dados inventados)
+    // Assistente virtual (IA local via Ollama, com reserva por regras)
+    AssistantModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

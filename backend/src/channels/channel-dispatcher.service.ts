@@ -47,6 +47,7 @@ export class ChannelDispatcher {
         messageId: message.id,
         content: message.content,
         senderName: message.sender.name,
+        senderRole: message.senderRole,
       });
     } catch (err) {
       this.logger.warn(`Falha ao entregar mensagem ${message.id} via ${adapter.code}: ${(err as Error).message}`);

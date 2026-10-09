@@ -12,6 +12,9 @@ export const protocolSelect = {
   createdAt: true,
   updatedAt: true,
   closedAt: true,
+  aiStatus: true,
+  aiSummary: true,
+  aiHandoffReason: true,
   client: {
     select: { id: true, name: true, email: true, phone: true },
   },

@@ -27,6 +27,8 @@ export interface OutboundMessage {
   messageId: string;
   content: string;
   senderName: string;
+  /** AGENT/SUPERVISOR/ADMIN ou BOT (assistente virtual) */
+  senderRole: string;
 }
 
 export interface ChannelInfo {

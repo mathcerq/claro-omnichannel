@@ -35,7 +35,8 @@ export class AuthService {
 
   async validateUser(email: string, password: string) {
     const user = await this.prisma.user.findUnique({ where: { email } });
-    if (!user || !user.isActive) return null;
+    // A conta da assistente virtual (BOT) nunca faz login
+    if (!user || !user.isActive || user.role === 'BOT') return null;
 
     const isValid = await bcrypt.compare(password, user.passwordHash);
     if (!isValid) return null;

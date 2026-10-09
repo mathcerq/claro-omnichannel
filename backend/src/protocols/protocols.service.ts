@@ -183,7 +183,62 @@ export class ProtocolsService {
       _count: true,
     });
 
-    return { total, open, inProgress, waiting, closed, byChannel };
+    // Assistente virtual: quanto a IA resolve sozinha e quanto passa para humanos
+    const [aiActive, aiHandedOff, aiResolved] = await Promise.all([
+      this.prisma.protocol.count({ where: { aiStatus: 'ACTIVE', status: { not: 'CLOSED' } } }),
+      this.prisma.protocol.count({ where: { aiHandoffReason: { not: null } } }),
+      this.prisma.protocol.count({ where: { aiStatus: 'RESOLVED' } }),
+    ]);
+    const aiFinished = aiHandedOff + aiResolved;
+    const ai = {
+      active: aiActive,
+      handedOff: aiHandedOff,
+      resolved: aiResolved,
+      resolutionRate: aiFinished ? Math.round((aiResolved / aiFinished) * 100) : null,
+    };
+
+    return { total, open, inProgress, waiting, closed, byChannel, ai };
+  }
+
+  // ── Assistente virtual ────────────────────────────────────────────────────────
+
+  /** Resultado do atendimento da IA: transferência para humano ou resolução. */
+  async applyAssistantOutcome(
+    protocolId: string,
+    outcome: { type: 'HANDOFF'; reason: string; summary: string; priority?: string } | { type: 'RESOLVE'; summary: string },
+  ) {
+    const data: any =
+      outcome.type === 'HANDOFF'
+        ? {
+            aiStatus: 'HANDED_OFF',
+            aiHandoffReason: outcome.reason,
+            aiSummary: outcome.summary,
+            ...(outcome.priority ? { priority: outcome.priority } : {}),
+          }
+        : { aiStatus: 'RESOLVED', aiSummary: outcome.summary, status: 'CLOSED', closedAt: new Date() };
+
+    const updated = await this.prisma.protocol.update({ where: { id: protocolId }, data, select: protocolSelect });
+    await this.prisma.auditLog.create({
+      data: {
+        action: outcome.type === 'HANDOFF' ? 'AI_HANDOFF' : 'AI_RESOLVED',
+        resource: `PROTOCOL:${updated.protocolNumber}`,
+        details: outcome.type === 'HANDOFF' ? outcome.reason : null,
+      },
+    });
+    const changes = outcome.type === 'HANDOFF' ? { aiStatus: 'HANDED_OFF' } : { aiStatus: 'RESOLVED', status: 'CLOSED' };
+    this.emitChange(DomainEvents.PROTOCOL_UPDATED, updated, changes);
+    return updated;
+  }
+
+  /** Atendente humano assumiu: a IA para de responder neste protocolo. */
+  async markHumanTookOver(protocolId: string) {
+    const { count } = await this.prisma.protocol.updateMany({
+      where: { id: protocolId, aiStatus: { in: ['ACTIVE', 'HANDED_OFF'] } },
+      data: { aiStatus: 'HUMAN' },
+    });
+    if (count === 0) return;
+    const updated = await this.prisma.protocol.findUnique({ where: { id: protocolId }, select: protocolSelect });
+    this.emitChange(DomainEvents.PROTOCOL_UPDATED, updated, { aiStatus: 'HUMAN' });
   }
 
   // ── Consultas usadas pelos canais externos (ex.: bot do Telegram) ──────────
