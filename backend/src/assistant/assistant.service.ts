@@ -73,6 +73,13 @@ export class AssistantService implements OnModuleInit {
     }
     this.botUserId = await this.ensureBotUser();
     const engine = await this.pickEngine();
+    if (engine === this.ollama) {
+      // Em segundo plano: não atrasa o boot da API
+      this.ollama
+        .warmUp()
+        .then((ms) => ms !== null && this.logger.log(`Modelo de IA carregado na memória em ${(ms / 1000).toFixed(1)}s`))
+        .catch((err) => this.logger.warn(`Não foi possível pré-carregar o modelo: ${(err as Error).message}`));
+    }
     this.logger.log(`Assistente virtual ativa — motor: ${engine.name}${engine.kind === 'RULES' && this.mode === 'ollama' ? ' (Ollama indisponível, usando reserva)' : ''}`);
   }
 

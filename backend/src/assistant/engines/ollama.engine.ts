@@ -15,6 +15,8 @@ interface OllamaMessage {
 }
 
 const MAX_TOOL_ROUNDS = 5;
+/** Mesmo contexto no aquecimento e nas conversas (se mudar, o Ollama recarrega o modelo) */
+const NUM_CTX = 8192;
 
 /**
  * LLM local e gratuito via Ollama (https://ollama.com). Roda na máquina da
@@ -31,6 +33,8 @@ export class OllamaEngine implements AssistantEngine {
   private readonly timeoutMs: number;
   /** Modelos com raciocínio (ex.: qwen3): OLLAMA_THINK=false deixa a resposta mais rápida */
   private readonly think: boolean | undefined;
+  /** Quanto tempo o modelo fica carregado na GPU sem uso (padrão 4h: cobre uma apresentação inteira) */
+  private readonly keepAlive: string;
   private availability: { ok: boolean; checkedAt: number } | null = null;
 
   constructor(config: ConfigService) {
@@ -39,10 +43,28 @@ export class OllamaEngine implements AssistantEngine {
     this.timeoutMs = Number(config.get('OLLAMA_TIMEOUT_MS') || 90000);
     const think = config.get<string>('OLLAMA_THINK');
     this.think = think === undefined || think === '' ? undefined : think === 'true';
+    this.keepAlive = config.get<string>('OLLAMA_KEEP_ALIVE') || '4h';
     this.name = `ollama:${this.model}`;
   }
 
   /** Ollama no ar e com o modelo baixado? (resultado em cache por 30s) */
+  /**
+   * Carrega o modelo na memória antes do primeiro cliente: sem isso, a primeira
+   * resposta depois de um tempo parado pode levar mais de 1 minuto.
+   */
+  async warmUp(): Promise<number | null> {
+    if (!(await this.isAvailable())) return null;
+    const started = Date.now();
+    const res = await fetch(`${this.baseUrl}/api/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: this.model, keep_alive: this.keepAlive, options: { num_ctx: NUM_CTX } }), // sem prompt = só carrega
+      signal: AbortSignal.timeout(this.timeoutMs),
+    });
+    if (!res.ok) throw new Error(`Ollama respondeu ${res.status}`);
+    return Date.now() - started;
+  }
+
   async isAvailable(): Promise<boolean> {
     if (this.availability && Date.now() - this.availability.checkedAt < 30_000) return this.availability.ok;
     let ok = false;
@@ -99,8 +121,8 @@ export class OllamaEngine implements AssistantEngine {
         ...(tools ? { tools } : {}),
         ...(this.think !== undefined ? { think: this.think } : {}),
         stream: false,
-        keep_alive: '30m',
-        options: { temperature: 0.2, num_ctx: 8192 },
+        keep_alive: this.keepAlive,
+        options: { temperature: 0.2, num_ctx: NUM_CTX },
       }),
       signal: AbortSignal.timeout(this.timeoutMs),
     });
