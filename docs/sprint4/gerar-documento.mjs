@@ -279,7 +279,7 @@ function buildDocument() {
       ],
       why: [
         'Alinha a solução ao objetivo da Claro de reduzir filas e tempo médio de atendimento e de liberar os atendentes para os casos complexos. Atende ao critério de criatividade e inovação com uma abordagem responsável: a IA roda localmente (LGPD), é sempre identificada como IA, e o cliente pode pedir um humano a qualquer momento.',
-        'Foram comparados três modelos em cenários reais (fatura, internet, pedido de humano e contestação). O escolhido acertou 4 de 4; um modelo mais rápido acertou 0 de 4 por prometer ações sem executá-las.',
+        'Foram comparadas três configurações de modelo em cenários reais (fatura, internet, pedido de humano e contestação). A escolhida acertou 4 de 4; um modelo mais rápido acertou 0 de 4 por prometer ações sem executá-las.',
       ],
     }),
     label('ANTES'),
