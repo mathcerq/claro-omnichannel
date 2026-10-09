@@ -150,7 +150,8 @@ export const texts = {
   protocolSelected: (number: string, title: string) =>
     `📌 Protocolo ${number} selecionado — ${title}.\nSuas próximas mensagens entram nele.`,
 
-  assistantReply: (name: string, content: string) => `🤖 ${name} (assistente virtual):
+  /** `name` já vem como "Clara (assistente virtual)" */
+  assistantReply: (name: string, content: string) => `🤖 ${name}:
 ${content}`,
 
   agentReply: (agentName: string, content: string, protocolNumber: string) =>

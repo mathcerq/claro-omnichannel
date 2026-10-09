@@ -34,10 +34,10 @@ describe('dados simulados da Claro (mock)', () => {
 describe('RulesEngine (reserva sem IA generativa)', () => {
   const engine = new RulesEngine();
 
-  it('se apresenta como assistente virtual na primeira resposta', async () => {
+  it('cumprimenta pelo nome sem se reapresentar (o remetente já identifica a IA)', async () => {
     const decision = await engine.respond(ctx([{ role: 'user', content: 'oi' }]));
-    expect(decision.reply).toContain('assistente virtual');
-    expect(decision.reply).toContain('atendente');
+    expect(decision.reply.startsWith('Olá, Carlos!')).toBe(true);
+    expect(decision.reply).not.toContain('assistente virtual');
   });
 
   it('transfere imediatamente quando o cliente pede um humano', async () => {

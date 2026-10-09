@@ -69,7 +69,8 @@ async function main() {
     agentWs.socket.emit('join_protocol', { protocolId: telegramProtocol.id });
     fake.pushText(CHAT_ID, 'Minha internet cai toda noite');
     await waitFor(() => lastSent().startsWith('🤖 Clara (assistente virtual)'), { label: 'resposta da IA no Telegram' });
-    assert.match(lastSent(), /assistente virtual da Claro/);
+    assert.equal(lastSent().split('assistente virtual').length - 1, 1, 'IA deve se identificar uma única vez');
+    assert.match(lastSent(), /pedir um atendente/);
     assert.match(lastSent(), /região|modem/);
   });
 

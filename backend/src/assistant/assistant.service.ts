@@ -213,15 +213,12 @@ export class AssistantService implements OnModuleInit {
       this.typing(protocol.id, protocol.client.id, channel, false);
     }
 
-    // Transparência: o cliente sempre sabe que está falando com uma IA (não depende do modelo)
+    // Transparência: o remetente "Clara (assistente virtual)" já identifica a IA em
+    // todos os canais; na primeira resposta, garantimos o lembrete de que dá para
+    // pedir um atendente (sem depender do modelo e sem repetir a apresentação).
     const firstReply = !history.some((t) => t.role === 'assistant');
-    if (firstReply && !normalize(decision.reply).includes('assistente virtual')) {
-      decision = {
-        ...decision,
-        reply: `🤖 Sou a ${ASSISTANT_NAME}, assistente virtual da Claro. Se preferir, é só pedir um atendente a qualquer momento.
-
-${decision.reply}`,
-      };
+    if (firstReply && !normalize(decision.reply).includes('atendente')) {
+      decision = { ...decision, reply: `${decision.reply}\n\nSe preferir, é só pedir um atendente a qualquer momento.` };
     }
 
     // Um atendente pode ter assumido enquanto a IA pensava

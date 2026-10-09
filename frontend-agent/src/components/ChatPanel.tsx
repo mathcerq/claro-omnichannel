@@ -27,7 +27,9 @@ const channelOptions = [
 
 function DeliveryInfo({ message }: { message: Message }) {
   if (message.senderRole === 'CLIENT' || !message.deliveryStatus) {
-    if (message.senderRole !== 'CLIENT' && message.channel === 'TELEGRAM') {
+    // "enviando" só faz sentido logo após o envio (dados antigos não têm status)
+    const recent = Date.now() - new Date(message.createdAt).getTime() < 60_000;
+    if (message.senderRole !== 'CLIENT' && message.channel === 'TELEGRAM' && recent) {
       return <span className="text-gray-500">enviando ao Telegram…</span>;
     }
     return null;

@@ -90,7 +90,8 @@ async function main() {
           isRead: m.isRead ?? true,
           protocolId,
           createdAt: new Date(base + i * 15 * 60 * 1000), // ordem cronológica estável
-          deliveryStatus: m.senderRole !== 'CLIENT' && m.channel === 'PHONE' ? 'SIMULATED' : null,
+          deliveryStatus:
+            m.senderRole === 'CLIENT' ? null : m.channel === 'PHONE' ? 'SIMULATED' : m.channel === 'TELEGRAM' ? 'SENT' : null,
         },
       });
     }

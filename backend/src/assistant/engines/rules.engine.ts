@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common';
 import { AssistantContext, AssistantDecision, AssistantEngine } from '../assistant.types';
-import { ASSISTANT_NAME } from '../assistant.prompt';
 import { INTENTS, has, normalize } from '../assistant-intents';
 import { caseSummary } from '../assistant-guardrails';
 
@@ -28,9 +27,8 @@ export class RulesEngine implements AssistantEngine {
   async respond(ctx: AssistantContext): Promise<AssistantDecision> {
     const reply = await this.decide(ctx);
     const isFirst = !ctx.history.some((t) => t.role === 'assistant');
-    const intro = isFirst
-      ? `Olá, ${ctx.customerFirstName}! Sou a ${ASSISTANT_NAME}, assistente virtual da Claro. Se preferir, é só pedir um atendente a qualquer momento.\n\n`
-      : '';
+    // O nome do remetente já identifica a assistente virtual: só cumprimenta
+    const intro = isFirst ? `Olá, ${ctx.customerFirstName}! ` : '';
     return { reply: intro + reply, engine: this.name, toolsUsed: [...ctx.toolbox.used] };
   }
 
