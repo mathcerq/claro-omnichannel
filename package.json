@@ -5,11 +5,12 @@
     "setup": "npm install && npm --prefix backend run setup && npm --prefix frontend-agent install && npm --prefix frontend-client install",
     "dev": "concurrently -k -n api,painel,cliente -c red,blue,magenta \"npm --prefix backend run start:dev\" \"npm --prefix frontend-agent run dev\" \"npm --prefix frontend-client run dev\"",
     "db:reset": "npm --prefix backend run db:reset",
-    "test": "npm run test:unit && npm run test:e2e:telegram && npm run test:e2e:ui",
+    "test": "npm run test:unit && npm run test:e2e:telegram && npm run test:e2e:assistant && npm run test:e2e:ui",
     "test:unit": "npm --prefix backend test",
     "test:e2e:telegram": "node tests/e2e-telegram.mjs",
     "test:e2e:2fa": "node e2e-test.mjs",
-    "test:e2e:ui": "node tests/e2e-ui.mjs"
+    "test:e2e:ui": "node tests/e2e-ui.mjs",
+    "test:e2e:assistant": "node tests/e2e-assistant.mjs"
   },
   "dependencies": {
     "crypto-js": "^4.2.0",
