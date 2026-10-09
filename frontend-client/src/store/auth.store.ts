@@ -18,10 +18,22 @@ interface AuthState {
   initFromStorage: () => void;
 }
 
+/**
+ * Sessão lida de forma SÍNCRONA na criação do store: assim as rotas protegidas
+ * já sabem no primeiro render que o usuário está logado (antes, um F5 ou link
+ * direto para /protocols/:id ou /security redirecionava para a tela inicial).
+ */
+function readStoredSession() {
+  try {
+    const accessToken = localStorage.getItem('accessToken');
+    const user = JSON.parse(localStorage.getItem('user') || 'null');
+    if (accessToken && user) return { user, accessToken, isAuthenticated: true };
+  } catch {}
+  return { user: null, accessToken: null, isAuthenticated: false };
+}
+
 export const useAuthStore = create<AuthState>((set) => ({
-  user: null,
-  accessToken: null,
-  isAuthenticated: false,
+  ...readStoredSession(),
 
   setAuth: (user, accessToken, refreshToken) => {
     localStorage.setItem('accessToken', accessToken);
