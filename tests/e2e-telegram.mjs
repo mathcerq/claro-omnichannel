@@ -116,6 +116,10 @@ async function main() {
     assert.ok(protocol, 'protocolo não encontrado na conta do cliente');
     assert.equal(protocol.currentChannel, 'TELEGRAM');
     assert.equal(protocol.title, 'Internet lenta no quarto');
+    // Assistente desligada neste teste: o protocolo não pode aparecer como "IA atendendo"
+    await waitFor(async () => (await api('GET', `/protocols/${protocol.id}`, { token: carlos })).data.aiStatus === 'OFF', {
+      label: 'aiStatus OFF',
+    });
     await waitFor(() => agentWs.events.some((e) => e.event === 'protocols_list_updated'), { label: 'painel notificado' });
   });
 

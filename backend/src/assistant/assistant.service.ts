@@ -109,9 +109,14 @@ export class AssistantService implements OnModuleInit {
   }
 
   @OnEvent(DomainEvents.PROTOCOL_CREATED)
-  onProtocolCreated(event: ProtocolChangedEvent) {
+  async onProtocolCreated(event: ProtocolChangedEvent) {
+    // Assistente desligada: o protocolo não fica marcado como "IA atendendo"
+    if (!this.enabled) {
+      await this.prisma.protocol.update({ where: { id: event.protocolId }, data: { aiStatus: 'OFF' } });
+      return;
+    }
     // Chamado aberto pelo app: a IA já cumprimenta e começa a ajudar com base no assunto
-    if (this.enabled && event.protocol.currentChannel === 'WEBCHAT') this.schedule(event.protocolId);
+    if (event.protocol.currentChannel === 'WEBCHAT') this.schedule(event.protocolId);
   }
 
   @OnEvent(DomainEvents.PROTOCOL_UPDATED)
