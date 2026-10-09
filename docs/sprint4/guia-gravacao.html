@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Guia de gravação</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #1f2937; --muted: #6b7280; --line: #e5e7eb;
+    --accent: #da291c; --accent-soft: #fdecea;
+    --antes: #b45309; --antes-soft: #fef3c7; --vivo: #047857; --vivo-soft: #d1fae5;
+    --fala-bg: #f3f4f6; --code-bg: #eef0f3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f1115; --card: #181b21; --text: #e5e7eb; --muted: #9ca3af; --line: #2a2f38;
+      --accent: #f05545; --accent-soft: #3a1714;
+      --antes: #fbbf24; --antes-soft: #3a2a0a; --vivo: #34d399; --vivo-soft: #0b3326;
+      --fala-bg: #20242c; --code-bg: #262b34;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.55 system-ui, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 24px 16px 80px; }
+  h1 { font-size: 1.6rem; margin: 0 0 4px; }
+  h2 { font-size: 1.15rem; margin: 0; }
+  .sub { color: var(--muted); margin: 0 0 20px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; margin: 14px 0; }
+  .resposta { border-left: 5px solid var(--accent); }
+  .resposta p { margin: 6px 0; }
+  code, kbd { background: var(--code-bg); border-radius: 5px; padding: 1px 6px; font: 0.9em ui-monospace, Consolas, monospace; }
+  pre { background: var(--code-bg); border-radius: 8px; padding: 12px; overflow-x: auto; font: 0.85rem ui-monospace, Consolas, monospace; white-space: pre-wrap; word-break: break-all; }
+  .tag { display: inline-block; font-size: 0.72rem; font-weight: 700; letter-spacing: .04em; padding: 2px 8px; border-radius: 999px; vertical-align: middle; }
+  .tag.antes { background: var(--antes-soft); color: var(--antes); }
+  .tag.vivo { background: var(--vivo-soft); color: var(--vivo); }
+  .cena-head { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+  .tempo { color: var(--muted); font-size: 0.9rem; }
+  .feito { display: flex; align-items: center; gap: 6px; font-size: 0.9rem; color: var(--muted); cursor: pointer; user-select: none; }
+  .feito input { width: 18px; height: 18px; accent-color: var(--vivo); }
+  .cena.ok { opacity: .6; }
+  .bloco { margin-top: 14px; }
+  .bloco > .tag { margin-bottom: 8px; }
+  ol { margin: 6px 0; padding-left: 22px; }
+  li { margin: 4px 0; }
+  .fala { background: var(--fala-bg); border-radius: 8px; padding: 10px 14px; margin-top: 8px; font-style: italic; }
+  .fala::before { content: "🎙️ "; font-style: normal; }
+  .prints { display: flex; gap: 10px; flex-wrap: wrap; margin: 8px 0; }
+  .prints button { all: unset; cursor: pointer; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; width: 200px; max-width: 100%; background: var(--card); }
+  .prints button:focus-visible { outline: 3px solid var(--accent); }
+  .prints img { display: block; width: 100%; height: 112px; object-fit: cover; object-position: top; }
+  .prints span { display: block; font-size: 0.78rem; padding: 6px 8px; color: var(--muted); }
+  .aviso { background: var(--accent-soft); border-radius: 8px; padding: 8px 12px; margin-top: 10px; font-size: 0.92rem; }
+  .check li { list-style: none; margin-left: -22px; }
+  .check li::before { content: "☐ "; }
+  /* Visualizador em tela cheia: é isto que aparece no vídeo */
+  #viewer { position: fixed; inset: 0; background: #000; display: none; align-items: center; justify-content: center; z-index: 10; cursor: zoom-out; }
+  #viewer.open { display: flex; }
+  #viewer img { max-width: 100vw; max-height: 100vh; object-fit: contain; }
+  #viewer .dica { position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%); color: #fff; background: rgba(0,0,0,.6); padding: 4px 12px; border-radius: 999px; font-size: 0.8rem; transition: opacity 1s; }
+  #viewer .dica.some { opacity: 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>🎬 Guia de gravação do vídeo da Sprint 4</h1>
+  <p class="sub">Claro Omnichannel · vídeo de 4 a 5 min · uma pessoa</p>
+
+  <div class="card resposta">
+    <h2>Resposta curta: o que eu mostro?</h2>
+    <p>Para cada melhoria, mostre <b>duas coisas, nesta ordem</b>:</p>
+    <p><span class="tag antes">ANTES = PRINT</span> &nbsp;Mostre a imagem de como era. A versão antiga não roda mais, por isso usamos print. Clique na miniatura e ela abre em tela cheia. Fale por 5 a 10 segundos e aperte <kbd>Esc</kbd>.</p>
+    <p><span class="tag vivo">DEPOIS = AO VIVO</span> &nbsp;Mostre o sistema rodando de verdade (Telegram, painel e app), seguindo os passos.</p>
+    <p>A única exceção é a <b>Melhoria 4 (segurança)</b>: antes e depois são prints, porque são respostas da API e não há tela para clicar.</p>
+    <p style="color:var(--muted);font-size:.9rem">O arquivo <code>docs/ROTEIRO-APRESENTACAO.md</code> é outra coisa: é para a <b>apresentação ao vivo para a banca</b> (10 min, sem prints de antes). Para o vídeo, ignore esse arquivo e use só esta página.</p>
+  </div>
+
+  <div class="card">
+    <h2>Antes de gravar</h2>
+    <ol class="check">
+      <li>Ollama aberto, <code>npm run dev</code> rodando e <code>npm run demo:check</code> com tudo ✅.</li>
+      <li>Chrome com duas abas: <b>painel</b> <code>localhost:5173</code> (logado como <code>joao.atendente@claro.com.br</code>, com o código do autenticador do celular) e <b>app do cliente</b> <code>localhost:5174</code> (logado como <code>carlos.cliente@email.com</code>). A senha de todos é <code>Claro@2024</code>.</li>
+      <li>Telegram (desktop ou web) aberto na conversa com <code>@claro_omnichannel_mathcerq_bot</code>.</li>
+      <li>Esta página aberta em outra janela, para ver os passos e abrir os prints.</li>
+      <li>OBS Studio gravando a tela inteira, com a <b>webcam no canto</b> (câmera aberta é regra da entrega), em 1080p.</li>
+      <li>Zoom do navegador em 110–125% (<kbd>Ctrl</kbd> + <kbd>+</kbd>) para o texto ficar legível no vídeo. Notificações do Windows desligadas.</li>
+    </ol>
+    <div class="aviso"><b>Dica:</b> grave <b>uma cena por vez</b> e junte tudo na edição. Se errar, refaz só aquela cena. A IA leva de 15 a 50 s para responder: <b>corte ou acelere essa espera</b> na edição.</div>
+  </div>
+
+  <div id="cenas"></div>
+
+  <div class="card">
+    <h2>Depois de gravar</h2>
+    <ol>
+      <li>Publique no YouTube como <b>Não listado</b> (ou Público). Abra o link numa <b>aba anônima</b> para confirmar que funciona sem login.</li>
+      <li>Feche o documento no Word, se estiver aberto, e rode na raiz do projeto (PowerShell), trocando o link e os nomes:
+<pre>$env:VIDEO_URL="https://youtu.be/SEU-LINK"; $env:EQUIPE="Seu Nome Completo — RM 00000"; npm run docs:sprint4</pre>
+        Se a equipe tiver mais pessoas, separe com <code>;</code> dentro de <code>EQUIPE</code>.</li>
+      <li>Envie no portal o arquivo <code>docs/sprint4/Entrega-Sprint4-Claro-Omnichannel.zip</code> (Word + PDF com o link do vídeo na capa).</li>
+    </ol>
+  </div>
+</main>
+
+<div id="viewer" role="dialog" aria-label="Print em tela cheia"><img alt=""><div class="dica">Esc ou clique para voltar · ← → troca de print</div></div>
+
+<script>
+const cenas = [
+  {
+    titulo: 'Abertura', tempo: '0:00 – 0:25',
+    vivo: ['Mostre a webcam e o <b>dashboard do painel</b> ao fundo.'],
+    falaVivo: 'Olá, sou [seu nome]. Nosso projeto é o Claro Omnichannel: um único protocolo e uma única linha do tempo, para o cliente não precisar repetir o problema quando troca de canal. Vou mostrar as cinco melhorias que implementamos nesta sprint, comparando o antes e o depois.'
+  },
+  {
+    titulo: 'Melhoria 1 — Canal real: Telegram', tempo: '0:25 – 1:15',
+    prints: [['antes-1-novo-chamado-canais-ficticios.png', 'App oferecia canais que não existiam'], ['antes-1-painel-whatsapp-simulado.png', '"WhatsApp" era só um texto simulado']],
+    falaAntes: 'Antes, o WhatsApp era só um texto simulado inserido pela API, e o app oferecia canais que não existiam.',
+    vivo: [
+      '<b>Telegram:</b> envie <code>/novo Internet caindo à noite</code>. O bot responde com o número do protocolo.',
+      '<b>Painel:</b> o protocolo aparece sozinho no dashboard. Abra e clique em <b>Assumir atendimento</b>.',
+      'Com o canal <b>Telegram</b> selecionado, responda: <code>Olá, Carlos! Já estou verificando sua conexão.</code>',
+      '<b>Telegram:</b> mostre a resposta chegando. <b>Painel:</b> mostre o <b>“✓ entregue no Telegram”</b>.'
+    ],
+    falaVivo: 'Agora integramos um canal real, o Telegram. O cliente abre o chamado pelo bot, o protocolo aparece no painel, o atendente responde e a resposta chega no Telegram do cliente, com confirmação de entrega.',
+    aviso: 'Assuma o protocolo logo. Assim a assistente sai desta conversa, e ela será mostrada na Melhoria 3.'
+  },
+  {
+    titulo: 'Melhoria 2 — Tempo real', tempo: '1:15 – 1:55',
+    prints: [['antes-2-painel-sem-tempo-real.png', 'Mensagem enviada, painel sem nada'], ['antes-2-painel-apos-recarregar.png', 'Só aparecia depois de recarregar']],
+    falaAntes: 'Antes, o atendente só via uma mensagem nova recarregando a página, e a sessão caía a cada 15 minutos.',
+    vivo: [
+      'Deixe <b>app e painel lado a lado</b> (<kbd>Win</kbd> + <kbd>←</kbd> / <kbd>→</kbd>), no mesmo protocolo da cena anterior.',
+      '<b>App:</b> escreva <code>Também caiu hoje de manhã</code>. A mensagem aparece no painel <b>na hora</b>, sem recarregar.',
+      '<b>Painel:</b> clique em <b>Simular ligação recebida</b>. A ligação (telefone mock) entra na mesma timeline.',
+      '<b>Telegram:</b> envie <code>/historico</code>. Aparecem Telegram, WebChat e telefone no mesmo protocolo.'
+    ],
+    falaVivo: 'Agora tudo chega ao vivo, com confirmação de entrega, e se a conexão cair a tela recupera o que mudou. E repare: o cliente passou pelo Telegram, pelo site e pelo telefone, e a linha do tempo é uma só. Esse é o problema do desafio resolvido.'
+  },
+  {
+    titulo: 'Melhoria 3 — Assistente virtual com IA', tempo: '1:55 – 2:55',
+    prints: [['antes-3-cliente-sem-resposta.png', 'Cliente escrevia e ninguém respondia'], ['antes-3-dashboard.png', 'Dashboard sem métricas de IA']],
+    falaAntes: 'Antes, todo chamado ia direto para a fila e o cliente ficava esperando um atendente.',
+    vivo: [
+      '<b>App:</b> clique em <b>Novo chamado</b>. Assunto: <code>Internet caindo toda noite</code>. Descrição: <code>Minha internet cai toda noite, já reiniciei o modem</code>.',
+      'A Clara mostra “digitando…” e responde com o diagnóstico (sinal fraco) e a proposta de visita técnica. <b>Corte a espera na edição.</b>',
+      '<b>App:</b> escreva <code>quero falar com um atendente</code>. A transferência acontece na hora.',
+      '<b>Painel:</b> abra o protocolo com o selo <b>Transferido pela IA</b> e mostre o card com o <b>motivo e o resumo</b>.',
+      '<b>Painel:</b> volte ao dashboard e mostre as <b>métricas da IA</b> (taxa de resolução sem humano).'
+    ],
+    falaVivo: 'Agora a Clara, nossa assistente com IA rodando localmente, sem custo e sem enviar dados para fora, atende primeiro e resolve o básico consultando a rede e o modem. Quando o cliente pede um humano, ela transfere na hora e deixa o resumo do caso, então o atendente não precisa perguntar tudo de novo.',
+    aviso: 'Não clique em “Assumir” neste protocolo: o card de resumo é o que interessa mostrar.'
+  },
+  {
+    titulo: 'Melhoria 4 — Segurança e LGPD', tempo: '2:55 – 3:35',
+    prints: [['antes-4-seguranca-api.png', 'ANTES: cadastro como ADMIN e acesso indevido'], ['depois-4-seguranca-api.png', 'DEPOIS: as mesmas chamadas são recusadas']],
+    falaAntes: 'Encontramos falhas graves na versão anterior: qualquer pessoa conseguia se cadastrar como administrador, e um atendente via protocolos de outros atendentes. Agora as mesmas chamadas são recusadas. Também incluímos 2FA sem reutilização de código, trilha de auditoria e exportação dos dados do titular, como pede a LGPD.',
+    soPrints: true
+  },
+  {
+    titulo: 'Melhoria 5 — Interface', tempo: '3:35 – 4:15',
+    prints: [['antes-5-2fa-tela-em-branco.png', 'Configurar 2FA deixava a tela em branco'], ['antes-5-link-direto-volta-inicio.png', 'F5 voltava para o início']],
+    falaAntes: 'Na interface, a configuração do 2FA deixava a tela em branco, e dar F5 numa página voltava para o início.',
+    vivo: [
+      'Abra uma <b>janela anônima</b> (<kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>N</kbd>) em <code>localhost:5173</code>, entre como <code>maria.atendente@claro.com.br</code>, clique em <b>Configurar 2FA agora</b> e mostre o <b>QR Code</b>. Depois feche a janela.',
+      '<b>Painel do João:</b> dentro de um protocolo, aperte <kbd>F5</kbd>. A página continua no mesmo lugar.',
+      '<b>App:</b> abra a tela <b>Conectar Telegram</b> e mostre o Telegram conectado.'
+    ],
+    falaVivo: 'Corrigimos esses dois problemas e criamos telas novas: a conexão com o Telegram, os indicadores de canal real ou simulado e o acompanhamento da IA.',
+    aviso: 'Não conclua o 2FA da Maria (não leia o QR). Assim dá para regravar esta cena quantas vezes precisar.'
+  },
+  {
+    titulo: 'Fechamento', tempo: '4:15 – 4:30',
+    vivo: ['Volte para a webcam.'],
+    falaVivo: 'Todas as melhorias estão cobertas por testes automatizados e documentadas com antes e depois no documento da entrega. Obrigado!'
+  }
+];
+
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch {} }
+};
+
+const root = document.getElementById('cenas');
+cenas.forEach((c, i) => {
+  const el = document.createElement('section');
+  el.className = 'card cena';
+  const key = 'guia-video-cena-' + i;
+  const prints = (c.prints || []).map(([f, legenda], j) =>
+    `<button data-cena="${i}" data-idx="${j}" aria-label="Abrir em tela cheia: ${legenda}"><img src="img/${f}" alt=""><span>${legenda}</span></button>`).join('');
+  el.innerHTML = `
+    <div class="cena-head">
+      <h2>${c.titulo}</h2>
+      <span class="tempo">${c.tempo}</span>
+      <label class="feito"><input type="checkbox"> gravada</label>
+    </div>
+    ${c.prints ? `<div class="bloco"><span class="tag antes">${c.soPrints ? 'ANTES E DEPOIS = PRINTS' : 'ANTES = PRINT'}</span>
+      <div class="prints">${prints}</div>
+      <div class="fala">${c.falaAntes}</div></div>` : ''}
+    ${c.vivo ? `<div class="bloco"><span class="tag vivo">${c.prints ? 'DEPOIS = AO VIVO' : 'AO VIVO'}</span>
+      <ol>${c.vivo.map((p) => `<li>${p}</li>`).join('')}</ol>
+      <div class="fala">${c.falaVivo}</div></div>` : ''}
+    ${c.aviso ? `<div class="aviso">⚠️ ${c.aviso}</div>` : ''}`;
+  const box = el.querySelector('input');
+  box.checked = store.get(key) === '1';
+  el.classList.toggle('ok', box.checked);
+  box.addEventListener('change', () => { store.set(key, box.checked ? '1' : '0'); el.classList.toggle('ok', box.checked); });
+  root.appendChild(el);
+});
+
+// Visualizador em tela cheia
+const viewer = document.getElementById('viewer');
+const vimg = viewer.querySelector('img');
+const dica = viewer.querySelector('.dica');
+let atual = null;
+function mostrar(cena, idx) {
+  atual = { cena, idx };
+  vimg.src = 'img/' + cenas[cena].prints[idx][0];
+  vimg.alt = cenas[cena].prints[idx][1];
+}
+function abrir(cena, idx) {
+  mostrar(cena, idx);
+  viewer.classList.add('open');
+  dica.classList.remove('some');
+  setTimeout(() => dica.classList.add('some'), 1500);
+  viewer.requestFullscreen?.().catch(() => {});
+}
+function fechar() {
+  viewer.classList.remove('open');
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  atual = null;
+}
+root.addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-cena]');
+  if (b) abrir(+b.dataset.cena, +b.dataset.idx);
+});
+viewer.addEventListener('click', fechar);
+document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement && atual) fechar(); });
+document.addEventListener('keydown', (e) => {
+  if (!atual) return;
+  const n = cenas[atual.cena].prints.length;
+  if (e.key === 'Escape') fechar();
+  if (e.key === 'ArrowRight') mostrar(atual.cena, (atual.idx + 1) % n);
+  if (e.key === 'ArrowLeft') mostrar(atual.cena, (atual.idx - 1 + n) % n);
+});
+</script>
+</body>
+</html>
