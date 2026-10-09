@@ -72,6 +72,7 @@ Outros comandos úteis (na raiz):
 | `npm run db:reset` | Apaga o banco, reaplica as migrações e roda o seed |
 | `npm test` | Testes unitários + e2e do Telegram, da assistente e de interface |
 | `npm run test:e2e:2fa` | Login com 2FA no navegador (exige `npm run dev` rodando) |
+| `npm run demo:check` | Checagem pré-apresentação: API, bot, IA aquecida, painel, app e dados |
 | `npm run docs:screenshots` | Regera as capturas do painel usadas neste README (ambiente de teste isolado) |
 
 ### Credenciais de demonstração
@@ -206,6 +207,8 @@ O log da API mostra qual motor está ativo: `Assistente virtual ativa — motor:
 ---
 
 ## 4. Roteiro de demonstração
+
+> Para a apresentação à banca, use o **[roteiro com tempos, falas e plano B](docs/ROTEIRO-APRESENTACAO.md)** e rode `npm run demo:check` antes de começar.
 
 Teste manual com o bot real **@claro_omnichannel_mathcerq_bot** (com `npm run dev` rodando e o token no `.env`):
 
