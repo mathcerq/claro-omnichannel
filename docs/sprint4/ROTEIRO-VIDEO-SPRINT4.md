@@ -2,7 +2,13 @@
 
 Foco: **5 melhorias, mostrando como estava (ANTES) e como ficou (DEPOIS)**. Para o ANTES, mostre em tela cheia as imagens do documento (`docs/sprint4/img/antes-*.png`). Para o DEPOIS, mostre o sistema funcionando ao vivo.
 
-**Regras da entrega:** todos com **câmera aberta** (webcam em um canto da tela) e vídeo **público** (YouTube "Público" ou "Não listado", testando o link em aba anônima). O link vai no documento: `VIDEO_URL="https://..." npm run docs:sprint4`.
+**Regras da entrega:** todos com **câmera aberta** (webcam em um canto da tela) e vídeo **público** (YouTube "Público" ou "Não listado", testando o link em aba anônima). Depois de publicar, gere o documento final e o .zip com um comando (na raiz):
+
+```bash
+VIDEO_URL="https://link-do-video" EQUIPE="Nome 1 — RM 00000;Nome 2 — RM 00000" npm run docs:sprint4
+```
+
+O arquivo para enviar no portal fica em `docs/sprint4/Entrega-Sprint4-Claro-Omnichannel.zip` (Word + PDF).
 
 ## Antes de gravar
 - `npm run dev` e depois `npm run demo:check` (tudo ✅). Abas abertas: painel (:5173, João logado), app (:5174, Carlos logado) e Telegram na conversa com o bot.

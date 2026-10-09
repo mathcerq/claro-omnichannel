@@ -465,4 +465,15 @@ console.log('Word gerado:', path.relative(process.cwd(), OUT_DOCX));
 if (process.env.SKIP_PDF !== '1') {
   exportPdf();
   console.log('PDF gerado: ', path.relative(process.cwd(), OUT_PDF));
+
+  // Pacote para o portal (aceita .zip de até 50 MB)
+  const zip = path.join(HERE, 'Entrega-Sprint4-Claro-Omnichannel.zip');
+  execFileSync('powershell', [
+    '-NoProfile',
+    '-Command',
+    `Compress-Archive -Force -Path '${OUT_DOCX}','${OUT_PDF}' -DestinationPath '${zip}'`,
+  ]);
+  const mb = (readFileSync(zip).length / 1024 / 1024).toFixed(1);
+  console.log(`Zip gerado: ${path.relative(process.cwd(), zip)} (${mb} MB)`);
+  if (!VIDEO_URL) console.log('⚠️  Sem VIDEO_URL: a capa ainda mostra o aviso "COLE AQUI O LINK PÚBLICO DO VÍDEO".');
 }
