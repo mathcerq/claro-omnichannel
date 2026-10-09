@@ -38,7 +38,12 @@ export function caseSummary(ctx: AssistantContext): string {
     .join(' | ');
   const tools = ctx.toolbox.used.filter((t) => t !== 'transferir_para_atendente' && t !== 'concluir_atendimento');
   const checked = tools.length ? ` Verificações já feitas: ${[...new Set(tools)].join(', ')}.` : '';
-  return `Assunto: ${ctx.protocolTitle}. Cliente disse: ${said || ctx.protocolTitle}.${checked}`;
+  // O que a IA já apurou/orientou — é o que poupa o atendente de reperguntar
+  const lastAnswer = [...ctx.history].reverse().find((t) => t.role === 'assistant')?.content;
+  const oriented = lastAnswer
+    ? ` Última orientação da assistente: "${lastAnswer.replace(/\s+/g, ' ').replace(/Se preferir, é só pedir um atendente a qualquer momento\.?/, '').trim().slice(0, 300)}"`
+    : '';
+  return `Assunto: ${ctx.protocolTitle}. Cliente disse: ${said || ctx.protocolTitle}.${checked}${oriented}`;
 }
 
 /**

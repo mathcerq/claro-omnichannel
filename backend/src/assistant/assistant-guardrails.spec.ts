@@ -80,3 +80,21 @@ describe('travas da IA', () => {
     expect(await enforcePromisedActions(c, 'vou transferir para um atendente')).toBeNull();
   });
 });
+
+describe('resumo do caso para o atendente', () => {
+  it('inclui o que o cliente disse e a última orientação da IA (sem o lembrete padrão)', async () => {
+    const c = ctx([
+      { role: 'user', content: 'internet caindo toda noite' },
+      {
+        role: 'assistant',
+        content: 'Sinal fraco no modem (-27,8 dBm). Precisa de visita técnica.\n\nSe preferir, é só pedir um atendente a qualquer momento.',
+      },
+      { role: 'user', content: 'quero falar com um atendente' },
+    ]);
+    await respondWithGuardrails(llm('não usado'), new RulesEngine(), c);
+    const summary = (c.toolbox.action as any).summary as string;
+    expect(summary).toContain('internet caindo toda noite');
+    expect(summary).toContain('Última orientação da assistente: "Sinal fraco no modem (-27,8 dBm). Precisa de visita técnica."');
+    expect(summary).not.toContain('Se preferir');
+  });
+});
