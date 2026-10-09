@@ -18,6 +18,7 @@ import { AssistantContext, AssistantDecision, AssistantEngine, ConversationTurn 
 import { createToolbox } from './assistant-tools';
 import { respondWithGuardrails } from './assistant-guardrails';
 import { ASSISTANT_NAME } from './assistant.prompt';
+import { normalize } from './assistant-intents';
 import { OllamaEngine } from './engines/ollama.engine';
 import { RulesEngine } from './engines/rules.engine';
 
@@ -210,6 +211,17 @@ export class AssistantService implements OnModuleInit {
       decision = await this.rules.respond(ctx);
     } finally {
       this.typing(protocol.id, protocol.client.id, channel, false);
+    }
+
+    // Transparência: o cliente sempre sabe que está falando com uma IA (não depende do modelo)
+    const firstReply = !history.some((t) => t.role === 'assistant');
+    if (firstReply && !normalize(decision.reply).includes('assistente virtual')) {
+      decision = {
+        ...decision,
+        reply: `🤖 Sou a ${ASSISTANT_NAME}, assistente virtual da Claro. Se preferir, é só pedir um atendente a qualquer momento.
+
+${decision.reply}`,
+      };
     }
 
     // Um atendente pode ter assumido enquanto a IA pensava
