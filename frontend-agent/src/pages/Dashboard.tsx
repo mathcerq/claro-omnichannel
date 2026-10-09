@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, LogOut, Users, RefreshCw, Search, Wifi,
-  AlertTriangle, Clock, CheckCircle, Inbox, TrendingUp, Shield
+  AlertTriangle, Clock, CheckCircle, Inbox, TrendingUp, Shield, Bot
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../api/axios';
@@ -18,6 +18,7 @@ export default function Dashboard() {
   const { protocols, stats, setProtocols, setStats } = useProtocolsStore();
   const [channels, setChannels] = useState<{ code: string; kind: string; enabled: boolean; botUsername?: string }[]>([]);
   const refreshTimer = useRef<ReturnType<typeof setTimeout>>();
+  const [assistant, setAssistant] = useState<{ enabled: boolean; engine: string | null; engineKind: string | null } | null>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -40,6 +41,7 @@ export default function Dashboard() {
   useEffect(() => {
     fetchData();
     api.get('/channels').then((r) => setChannels(r.data)).catch(() => {});
+    api.get('/assistant/status').then((r) => setAssistant(r.data)).catch(() => {});
 
     // Qualquer mensagem/protocolo novo, em qualquer canal, atualiza a lista
     // (com debounce para rajadas de eventos)
@@ -144,6 +146,32 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* Assistente virtual */}
+      {assistant?.enabled && (
+        <div className="px-6 pt-3 flex flex-wrap items-center gap-2 text-xs">
+          <span className="text-gray-500 uppercase tracking-wider mr-1">Assistente IA</span>
+          <span
+            className="flex items-center gap-1.5 bg-indigo-950/60 border border-indigo-900 rounded-full px-3 py-1 text-indigo-200"
+            title={assistant.engineKind === 'LLM' ? 'IA generativa rodando localmente (Ollama), sem custo e sem enviar dados para fora' : 'Ollama indisponível: usando o motor de regras'}
+          >
+            <Bot size={12} />
+            {assistant.engineKind === 'LLM' ? `IA local · ${assistant.engine?.replace('ollama:', '')}` : 'Motor de regras (reserva)'}
+          </span>
+          {stats?.ai && (
+            <>
+              <span className="bg-gray-900 border border-gray-800 rounded-full px-3 py-1 text-gray-300">{stats.ai.active} atendendo agora</span>
+              <span className="bg-gray-900 border border-gray-800 rounded-full px-3 py-1 text-emerald-300">{stats.ai.resolved} resolvidos pela IA</span>
+              <span className="bg-gray-900 border border-gray-800 rounded-full px-3 py-1 text-amber-300">{stats.ai.handedOff} transferidos para humanos</span>
+              {stats.ai.resolutionRate !== null && (
+                <span className="bg-gray-900 border border-gray-800 rounded-full px-3 py-1 text-gray-300">
+                  taxa de resolução da IA: <strong className="text-white">{stats.ai.resolutionRate}%</strong>
+                </span>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
       {/* Stats */}
       <div className="px-6 py-4 grid grid-cols-2 sm:grid-cols-5 gap-3">
         {statsCards.map(({ label, value, Icon, color }) => (
@@ -227,7 +255,14 @@ export default function Dashboard() {
                         <p className="text-xs text-gray-500">{p.client.email}</p>
                       </td>
                       <td className="px-4 py-3"><ChannelBadge channel={p.currentChannel} /></td>
-                      <td className="px-4 py-3"><StatusBadge status={p.status} /></td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-col items-start gap-1">
+                          <StatusBadge status={p.status} />
+                          {p.aiStatus === 'ACTIVE' && p.status !== 'CLOSED' && <span className="badge bg-indigo-950 text-indigo-300"><Bot size={10} /> IA atendendo</span>}
+                          {p.aiStatus === 'HANDED_OFF' && <span className="badge bg-amber-950 text-amber-300" title={p.aiHandoffReason ?? ''}><Bot size={10} /> Transferido pela IA</span>}
+                          {p.aiStatus === 'RESOLVED' && <span className="badge bg-emerald-950 text-emerald-300"><Bot size={10} /> Resolvido pela IA</span>}
+                        </div>
+                      </td>
                       <td className="px-4 py-3"><PriorityBadge priority={p.priority} /></td>
                       <td className="px-4 py-3 text-sm text-gray-400">
                         {p.agent ? p.agent.name : <span className="text-amber-400 text-xs">Sem atendente</span>}

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Send, Wifi, Phone, Globe, CheckCheck, AlertTriangle, FlaskConical } from 'lucide-react';
+import { Send, Wifi, Phone, Globe, CheckCheck, AlertTriangle, FlaskConical, Bot } from 'lucide-react';
 import { Message } from '../store/protocols.store';
 import ChannelBadge from './ChannelBadge';
 import { useAuthStore } from '../store/auth.store';
@@ -10,6 +10,8 @@ interface Props {
   /** Canais pelos quais é possível responder a este cliente (vem da API) */
   availableChannels?: string[];
   disabled?: boolean;
+  /** A assistente virtual está preparando uma resposta */
+  assistantTyping?: boolean;
 }
 
 const channelOptions = [
@@ -51,7 +53,7 @@ function DeliveryInfo({ message }: { message: Message }) {
   );
 }
 
-export default function ChatPanel({ messages, onSend, availableChannels, disabled }: Props) {
+export default function ChatPanel({ messages, onSend, availableChannels, disabled, assistantTyping }: Props) {
   const isAvailable = (value: string) => !availableChannels || availableChannels.includes(value);
 
   // Responde, por padrão, pelo último canal REAL em que o cliente escreveu
@@ -68,7 +70,7 @@ export default function ChatPanel({ messages, onSend, availableChannels, disable
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages, assistantTyping]);
 
   useEffect(() => {
     setChannel(preferredChannel);
@@ -118,6 +120,8 @@ export default function ChatPanel({ messages, onSend, availableChannels, disable
           lastDate = msgDate;
           const isAgent = msg.senderRole === 'AGENT' || msg.senderRole === 'SUPERVISOR' || msg.senderRole === 'ADMIN';
           const isMine = msg.sender.id === user?.id;
+          const isBot = msg.senderRole === 'BOT';
+          const companySide = isMine || isBot;
 
           return (
             <div key={msg.id}>
@@ -126,16 +130,23 @@ export default function ChatPanel({ messages, onSend, availableChannels, disable
                   <span className="bg-gray-800 px-3 py-1 rounded-full">{msgDate}</span>
                 </div>
               )}
-              <div className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[75%] ${isMine ? 'items-end' : 'items-start'} flex flex-col gap-1`}>
+              <div className={`flex ${companySide ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[75%] ${companySide ? 'items-end' : 'items-start'} flex flex-col gap-1`}>
                   <div className="flex items-center gap-2 text-xs text-gray-400">
-                    {!isMine && <span className="font-medium text-gray-300">{msg.sender.name}</span>}
+                    {isBot && (
+                      <span className="flex items-center gap-1 font-medium text-indigo-300">
+                        <Bot size={12} /> {msg.sender.name} · IA
+                      </span>
+                    )}
+                    {!isMine && !isBot && <span className="font-medium text-gray-300">{msg.sender.name}</span>}
                     <ChannelBadge channel={msg.channel} />
                   </div>
                   <div
                     className={`px-4 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap break-words ${
                       isMine
                         ? 'bg-claro-red text-white rounded-tr-sm'
+                        : isBot
+                        ? 'bg-indigo-950 text-indigo-100 border border-indigo-800 rounded-tr-sm'
                         : isAgent
                         ? 'bg-gray-700 text-gray-100 rounded-tl-sm'
                         : 'bg-gray-800 text-gray-100 rounded-tl-sm border border-gray-700'
@@ -145,13 +156,20 @@ export default function ChatPanel({ messages, onSend, availableChannels, disable
                   </div>
                   <span className="text-xs text-gray-600 flex items-center gap-2">
                     {formatTime(msg.createdAt)}
-                    {isAgent && <DeliveryInfo message={msg} />}
+                    {(isAgent || isBot) && <DeliveryInfo message={msg} />}
                   </span>
                 </div>
               </div>
             </div>
           );
         })}
+        {assistantTyping && (
+          <div className="flex justify-end">
+            <span className="flex items-center gap-1.5 text-xs text-indigo-300 bg-indigo-950/60 border border-indigo-900 px-3 py-1.5 rounded-full">
+              <Bot size={12} className="animate-pulse" /> Clara (IA) está digitando…
+            </span>
+          </div>
+        )}
         <div ref={messagesEndRef} />
       </div>
 

@@ -7,6 +7,7 @@ import { getSocket } from '../api/socket';
 import { useAuthStore } from '../store/auth.store';
 import { useProtocolsStore, Protocol, Message } from '../store/protocols.store';
 import ChatPanel from '../components/ChatPanel';
+import AssistantCard from '../components/AssistantCard';
 import ChannelBadge from '../components/ChannelBadge';
 import { StatusBadge, PriorityBadge } from '../components/StatusBadge';
 
@@ -16,6 +17,7 @@ export default function ProtocolDetail() {
   const user = useAuthStore((s) => s.user);
   const { selectedProtocol, setSelectedProtocol, addMessage, updateMessage, updateProtocol } = useProtocolsStore();
   const [simulatingCall, setSimulatingCall] = useState(false);
+  const [assistantTyping, setAssistantTyping] = useState(false);
   const [loading, setLoading] = useState(true);
   const [agents, setAgents] = useState<any[]>([]);
 
@@ -49,6 +51,9 @@ export default function ProtocolDetail() {
     const onProtocolUpdated = (proto: Protocol) => {
       if (proto.id === id) updateProtocol(id!, proto);
     };
+    const onAssistantTyping = (data: { protocolId: string; typing: boolean }) => {
+      if (data.protocolId === id) setAssistantTyping(data.typing);
+    };
     // Cliente vinculou/desvinculou o Telegram: atualiza os canais disponíveis
     const onClientChannels = (data: { userId: string }) => {
       if (data.userId === useProtocolsStore.getState().selectedProtocol?.client.id) fetchProtocol();
@@ -59,6 +64,7 @@ export default function ProtocolDetail() {
     socket.on('message_updated', onMessageUpdated);
     socket.on('protocol_updated', onProtocolUpdated);
     socket.on('client_channels_updated', onClientChannels);
+    socket.on('assistant_typing', onAssistantTyping);
 
     return () => {
       if (id) socket.emit('leave_protocol', { protocolId: id });
@@ -67,6 +73,7 @@ export default function ProtocolDetail() {
       socket.off('message_updated', onMessageUpdated);
       socket.off('protocol_updated', onProtocolUpdated);
       socket.off('client_channels_updated', onClientChannels);
+      socket.off('assistant_typing', onAssistantTyping);
     };
   }, [id, fetchProtocol, addMessage, updateMessage, updateProtocol]);
 
@@ -153,12 +160,15 @@ export default function ProtocolDetail() {
             onSend={handleSendMessage}
             availableChannels={p.availableChannels}
             disabled={p.status === 'CLOSED'}
+            assistantTyping={assistantTyping}
           />
         </div>
 
         {/* Sidebar */}
         <aside className="w-72 bg-gray-900 border-l border-gray-800 overflow-y-auto">
           <div className="p-4 space-y-5">
+            <AssistantCard protocol={p} onTakeOver={() => user && handleAssignAgent(user.id)} />
+
             {/* Client info */}
             <div>
               <h3 className="text-xs uppercase tracking-wider text-gray-400 mb-2 flex items-center gap-1.5">

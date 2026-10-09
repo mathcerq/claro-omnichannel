@@ -17,6 +17,10 @@ export interface Protocol {
   messages?: Message[];
   /** Canais pelos quais o atendente consegue responder a este cliente */
   availableChannels?: string[];
+  /** Assistente virtual: ACTIVE | HANDED_OFF | RESOLVED | HUMAN | OFF */
+  aiStatus?: string;
+  aiSummary?: string | null;
+  aiHandoffReason?: string | null;
 }
 
 export interface Message {

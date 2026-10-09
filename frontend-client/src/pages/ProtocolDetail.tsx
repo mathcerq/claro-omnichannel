@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, Send, RefreshCw, MessageSquare, Phone, Globe, Mail, Wifi } from 'lucide-react';
+import { ArrowLeft, Send, RefreshCw, MessageSquare, Phone, Globe, Mail, Wifi, Bot } from 'lucide-react';
 import api from '../api/axios';
 import { getSocket } from '../api/socket';
 import { useAuthStore } from '../store/auth.store';
@@ -26,6 +26,7 @@ interface Protocol {
   currentChannel: string;
   createdAt: string;
   agent: { id: string; name: string } | null;
+  aiStatus?: string;
   messages: Message[];
 }
 
@@ -47,6 +48,7 @@ export default function ProtocolDetail() {
   const [loading, setLoading] = useState(true);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [assistantTyping, setAssistantTyping] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const fetchProtocol = useCallback(async () => {
@@ -77,6 +79,9 @@ export default function ProtocolDetail() {
         return { ...prev, messages: [...prev.messages, msg] };
       });
     };
+    const onAssistantTyping = (data: { protocolId: string; typing: boolean }) => {
+      if (data.protocolId === id) setAssistantTyping(data.typing);
+    };
     const onProtocolUpdated = (proto: any) => {
       if (proto.id === id) setProtocol((prev) => (prev ? { ...prev, ...proto } : prev));
     };
@@ -84,18 +89,20 @@ export default function ProtocolDetail() {
     socket.on('connect', join);
     socket.on('new_message', onNewMessage);
     socket.on('protocol_updated', onProtocolUpdated);
+    socket.on('assistant_typing', onAssistantTyping);
 
     return () => {
       if (id) socket.emit('leave_protocol', { protocolId: id });
       socket.off('connect', join);
       socket.off('new_message', onNewMessage);
       socket.off('protocol_updated', onProtocolUpdated);
+      socket.off('assistant_typing', onAssistantTyping);
     };
   }, [id, fetchProtocol]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [protocol?.messages]);
+  }, [protocol?.messages, assistantTyping]);
 
   const handleSend = async () => {
     if (!input.trim() || sending || !id || !protocol) return;
@@ -152,6 +159,18 @@ export default function ProtocolDetail() {
           <Send size={10} />
           Continue esta conversa pelo Telegram — o histórico é o mesmo
         </Link>
+        {protocol.status !== 'CLOSED' && protocol.aiStatus === 'ACTIVE' && (
+          <div className="flex items-center gap-1 mt-2 text-xs text-indigo-600 ml-9">
+            <Bot size={10} />
+            <span>Atendimento pela Clara, assistente virtual (IA). Peça um atendente quando quiser.</span>
+          </div>
+        )}
+        {protocol.status !== 'CLOSED' && protocol.aiStatus === 'HANDED_OFF' && (
+          <div className="flex items-center gap-1 mt-2 text-xs text-amber-600 ml-9">
+            <Wifi size={10} />
+            <span>Transferido para um atendente — ele já recebeu o histórico desta conversa.</span>
+          </div>
+        )}
         {protocol.agent && (
           <div className="flex items-center gap-1 mt-2 text-xs text-gray-500 ml-9">
             <Wifi size={10} className="text-emerald-500" />
@@ -176,6 +195,7 @@ export default function ProtocolDetail() {
           lastDate = msgDate;
           const isMe = msg.sender.id === user?.id;
           const isAgent = ['AGENT', 'SUPERVISOR', 'ADMIN'].includes(msg.senderRole);
+          const isBot = msg.senderRole === 'BOT';
           const MsgChannelIcon = channelIcons[msg.channel] || Globe;
 
           return (
@@ -189,7 +209,8 @@ export default function ProtocolDetail() {
                 <div className={`max-w-[80%] ${isMe ? 'items-end' : 'items-start'} flex flex-col gap-1`}>
                   {!isMe && (
                     <div className="flex items-center gap-1.5 text-xs text-gray-400 px-1">
-                      <span className={isAgent ? 'font-semibold text-claro-red' : ''}>{msg.sender.name}</span>
+                      {isBot && <Bot size={11} className="text-indigo-600" />}
+                      <span className={isAgent ? 'font-semibold text-claro-red' : isBot ? 'font-semibold text-indigo-600' : ''}>{msg.sender.name}</span>
                       <MsgChannelIcon size={10} />
                     </div>
                   )}
@@ -199,6 +220,8 @@ export default function ProtocolDetail() {
                         ? 'bg-claro-red text-white rounded-br-sm'
                         : isAgent
                         ? 'bg-gray-900 text-white rounded-bl-sm'
+                        : isBot
+                        ? 'bg-indigo-50 text-gray-900 border border-indigo-100 rounded-bl-sm'
                         : 'bg-white text-gray-900 border border-gray-100 rounded-bl-sm shadow-sm'
                     }`}
                   >
@@ -213,6 +236,13 @@ export default function ProtocolDetail() {
             </div>
           );
         })}
+        {assistantTyping && (
+          <div className="flex justify-start">
+            <span className="flex items-center gap-1.5 text-xs text-indigo-600 bg-indigo-50 border border-indigo-100 px-3 py-1.5 rounded-full">
+              <Bot size={12} className="animate-pulse" /> Clara está digitando…
+            </span>
+          </div>
+        )}
         <div ref={messagesEndRef} />
       </div>
 
