@@ -11,6 +11,8 @@
 | **Telegram** | ✅ **Real** | Bot oficial ([@claro_omnichannel_mathcerq_bot](https://t.me/claro_omnichannel_mathcerq_bot)) via Telegram Bot API, *long polling* |
 | **Telefone** | 🧪 **Mock assumido** | Simulado **de propósito**: ligações e dados são inventados. Não há integração com telefonia |
 
+**Assistente virtual (IA):** a **Clara** atende primeiro, no WebChat e no Telegram. Ela resolve sozinha o nível 1 (fatura, 2ª via, internet caindo, visita técnica) e transfere para um humano, com o resumo do caso, o que é complexo. Roda com **IA local e gratuita** (Ollama), sem custo e sem enviar dados para fora (seção 3).
+
 > O WhatsApp, que aparecia nas versões anteriores, foi substituído pelo Telegram como canal de mensageria **real**: a API do WhatsApp Business exige conta comercial verificada pela Meta, o que não cabe numa PoC acadêmica. A arquitetura aceita o WhatsApp como um novo *adapter* sem mudar o núcleo (veja [Como adicionar um canal](#como-adicionar-um-canal)).
 
 ---
@@ -19,16 +21,17 @@
 
 1. [Como rodar](#1-como-rodar)
 2. [Configurar o bot do Telegram](#2-configurar-o-bot-do-telegram)
-3. [Roteiro de demonstração](#3-roteiro-de-demonstração)
-4. [Arquitetura](#4-arquitetura)
-5. [Canal telefone: mock assumido](#5-canal-telefone-mock-assumido)
-6. [Segurança e LGPD](#6-segurança-e-lgpd)
-7. [Modelo de dados](#7-modelo-de-dados)
-8. [API REST](#8-api-rest)
-9. [Eventos WebSocket](#9-eventos-websocket)
-10. [Testes](#10-testes)
-11. [Estrutura de pastas](#11-estrutura-de-pastas)
-12. [Limitações e próximos passos](#12-limitações-e-próximos-passos)
+3. [Assistente virtual (IA)](#3-assistente-virtual-ia)
+4. [Roteiro de demonstração](#4-roteiro-de-demonstração)
+5. [Arquitetura](#5-arquitetura)
+6. [Canal telefone: mock assumido](#6-canal-telefone-mock-assumido)
+7. [Segurança e LGPD](#7-segurança-e-lgpd)
+8. [Modelo de dados](#8-modelo-de-dados)
+9. [API REST](#9-api-rest)
+10. [Eventos WebSocket](#10-eventos-websocket)
+11. [Testes](#11-testes)
+12. [Estrutura de pastas](#12-estrutura-de-pastas)
+13. [Limitações e próximos passos](#13-limitações-e-próximos-passos)
 
 ---
 
@@ -38,6 +41,7 @@
 
 - **Node.js 18+** (testado com Node 24) e **npm 9+**
 - **Google Chrome**, só para os testes de navegador (Playwright usa o Chrome instalado)
+- **Ollama + modelo `qwen3:4b`** (opcional), para a assistente virtual com IA real (seção 3). Sem ele, a assistente usa o motor de regras
 
 ### Passo a passo
 
@@ -66,7 +70,7 @@ Outros comandos úteis (na raiz):
 | Comando | O que faz |
 |---|---|
 | `npm run db:reset` | Apaga o banco, reaplica as migrações e roda o seed |
-| `npm test` | Testes unitários + e2e do Telegram + e2e de interface |
+| `npm test` | Testes unitários + e2e do Telegram, da assistente e de interface |
 | `npm run test:e2e:2fa` | Login com 2FA no navegador (exige `npm run dev` rodando) |
 
 ### Credenciais de demonstração
@@ -138,17 +142,81 @@ O bot só atende em conversa **privada** (recusa grupos), envia texto puro (sem 
 
 ---
 
-## 3. Roteiro de demonstração
+## 3. Assistente virtual (IA)
+
+A **Clara** é a assistente virtual que atende **primeiro**, no WebChat e no Telegram, na **mesma timeline** do protocolo. Ela resolve o que é simples e passa para um atendente humano o que é complexo, já com um **resumo do caso**, para que o cliente não precise repetir nada.
+
+| Ela resolve sozinha | Ela transfere para um humano |
+|---|---|
+| Valor e vencimento da fatura, 2ª via | Pedido de atendente ("quero falar com uma pessoa") |
+| Internet lenta/caindo: verifica a rede da região e o modem | Contestação de cobrança, reembolso, cancelamento, portabilidade |
+| Reinício remoto do modem | Reclamação grave, Procon/Anatel |
+| Agendamento de visita técnica | Quando não consegue resolver |
+| Status do protocolo | |
+
+**Como funciona:**
+- **IA local e gratuita:** um modelo aberto (**Qwen3 4B**) roda no próprio computador via [Ollama](https://ollama.com). Não há custo nem chave de API, e **nenhuma conversa sai da máquina** (ponto forte para a LGPD).
+- **Ferramentas (function calling):** a IA não inventa dados. Ela chama funções para consultar a fatura, a rede, o modem e agendar visitas. Esses sistemas da Claro são **simulados (mock)** em `backend/src/assistant/mock-claro-api.ts`, com dados inventados e estáveis por cliente.
+- **Travas determinísticas:** regras de negócio críticas não dependem do modelo.
+  - Pedido de humano, cancelamento, contestação e Procon **sempre** transferem, na hora, sem esperar a IA.
+  - "Resolveu, obrigado" encerra o protocolo.
+  - Se a IA disser "vou transferir" sem chamar a ferramenta, o sistema transfere mesmo assim.
+  - A primeira resposta **sempre** se apresenta como IA e oferece um atendente.
+- **Motor de reserva:** se o Ollama não estiver rodando, um **motor de regras** (palavras-chave + as mesmas ferramentas) assume automaticamente. A demonstração nunca quebra.
+- **A IA sai de cena** assim que um atendente **assume** o protocolo ou **escreve** nele.
+- **No painel:**
+  - mensagens marcadas como "Clara · IA";
+  - "digitando…" enquanto ela responde;
+  - card com o **motivo e o resumo** da transferência;
+  - selos "IA atendendo", "Transferido pela IA" e "Resolvido pela IA";
+  - métricas: resolvidos, transferidos e **taxa de resolução da IA**.
+
+### Instalar a IA local
+
+```bash
+# 1. Instale o Ollama: https://ollama.com/download (Windows: winget install Ollama.Ollama)
+# 2. Baixe o modelo (≈2,5 GB; roda em placas de vídeo de 4–6 GB, ou na CPU, mais devagar)
+ollama pull qwen3:4b
+```
+
+Configuração em `backend/.env`:
+
+```env
+ASSISTANT_ENGINE=ollama   # ollama | rules (só regras) | off (desligada)
+OLLAMA_URL=http://localhost:11434
+OLLAMA_MODEL=qwen3:4b
+OLLAMA_THINK=true         # raciocínio ligado: mais lento, mas usa as ferramentas corretamente
+```
+
+O log da API mostra qual motor está ativo: `Assistente virtual ativa — motor: ollama:qwen3:4b`.
+
+### Escolha do modelo (testado nesta máquina: RTX 2060 6 GB)
+
+| Modelo | Acertos nos cenários* | Tempo por resposta | Observação |
+|---|---|---|---|
+| **qwen3:4b** (raciocínio ligado) | **4/4** | 15–50 s | Escolhido: chama as ferramentas corretamente e escreve bem em português |
+| qwen3:4b (raciocínio desligado) | 3/4 | 8–28 s | "Pensa em voz alta" em inglês na resposta ao cliente |
+| qwen2.5:7b | 0/4 | 2–8 s | Rápido, mas promete ações sem executar e escreve chamadas de ferramenta como texto |
+
+\* Fatura + 2ª via, internet caindo, pedido de humano e contestação de cobrança, **sem as travas**. Com as travas, o pedido de humano e a contestação são resolvidos na hora pelo código. Para reavaliar: `cd backend && npx ts-node scripts/assistant-scenarios.ts`.
+
+**Limitação conhecida:** num computador comum, a IA local leva de 15 a 50 s por resposta (o "digitando…" fica visível). Em produção, o mesmo motor roda em servidor com GPU ou é trocado por uma API comercial. O motor é plugável (`AssistantEngine`), então isso não muda o resto do sistema.
+
+---
+
+## 4. Roteiro de demonstração
 
 Teste manual com o bot real **@claro_omnichannel_mathcerq_bot** (com `npm run dev` rodando e o token no `.env`):
 
 1. **Cliente no WebChat:** entre em http://localhost:5174 como `carlos.cliente@email.com` → **Conectar Telegram** → **Gerar código** → **Abrir no Telegram** → *Iniciar*. O app mostra "Telegram conectado".
-2. **Cliente no Telegram:** envie `/protocolos` para ver o CLR-2026-10001 vindo do seed, ou `/novo Internet caindo à noite` para abrir um novo protocolo. Depois mande uma mensagem livre.
-3. **Atendente:** entre em http://localhost:5173 como `joao.atendente@claro.com.br` (com 2FA). O protocolo aparece na lista **sem recarregar** e a mensagem do Telegram chega **ao vivo** na tela do protocolo.
-4. **Atendente responde pelo Telegram:** com o canal **Telegram** selecionado (padrão quando o cliente escreveu por lá), a resposta chega ao Telegram do cliente e o painel mostra "✓ entregue no Telegram".
-5. **Troca de canal:** no app (:5174), abra o mesmo protocolo e escreva pelo WebChat. Mesmo número, mesma timeline, cada mensagem com seu canal. No Telegram, `/historico` mostra as mensagens dos dois canais.
-6. **Telefone (mock):** no painel, **Simular ligação recebida**. Entra uma "ligação" com dados inventados na mesma timeline.
-7. **Encerramento:** no painel, **Encerrar**. O cliente recebe o aviso no Telegram, e a próxima mensagem abre outro protocolo (o encerrado não é reaberto).
+2. **Cliente no Telegram, atendido pela IA:** envie `/novo Internet caindo à noite` e depois descreva o problema, por exemplo "minha internet cai toda noite". A **Clara** (IA) se apresenta, verifica a rede e o modem e propõe uma solução: reinício remoto ou visita técnica. Enquanto isso, o Telegram mostra "digitando…".
+3. **Pedido de humano:** escreva "quero falar com um atendente". A Clara transfere **na hora** e deixa um resumo do caso.
+4. **Atendente:** entre em http://localhost:5173 como `joao.atendente@claro.com.br` (com 2FA). O protocolo aparece na lista **sem recarregar**, com o selo "Transferido pela IA". Na tela do protocolo, o card **Assistente virtual (IA)** mostra o motivo e o **resumo**. Clique em **Assumir atendimento**.
+5. **Atendente responde pelo Telegram:** com o canal **Telegram** selecionado (padrão quando o cliente escreveu por lá), a resposta chega ao Telegram do cliente e o painel mostra "✓ entregue no Telegram".
+6. **Troca de canal:** no app (:5174), abra o mesmo protocolo e escreva pelo WebChat. Mesmo número, mesma timeline, cada mensagem com seu canal. No Telegram, `/historico` mostra as mensagens dos dois canais.
+7. **Telefone (mock):** no painel, **Simular ligação recebida**. Entra uma "ligação" com dados inventados na mesma timeline.
+8. **Encerramento:** no painel, **Encerrar**. O cliente recebe o aviso no Telegram, e a próxima mensagem abre outro protocolo (o encerrado não é reaberto).
+9. **IA resolvendo sozinha:** no app, abra um chamado "Dúvida na fatura". A Clara responde com valor e vencimento; peça a 2ª via e depois diga "era só isso, obrigado". O protocolo é **encerrado pela IA**, sem humano, e entra na taxa de resolução do dashboard.
 
 | Vincular Telegram (app) | Timeline unificada (app) |
 |---|---|
@@ -162,7 +230,7 @@ Teste manual com o bot real **@claro_omnichannel_mathcerq_bot** (com `npm run de
 
 ---
 
-## 4. Arquitetura
+## 5. Arquitetura
 
 ```
  ┌────────────────────┐       ┌──────────────────────────────────────────────────────────┐
@@ -216,7 +284,7 @@ Não é preciso alterar protocolos, mensagens, WebSocket nem guards. Trocar o te
 
 ---
 
-## 5. Canal telefone: mock assumido
+## 6. Canal telefone: mock assumido
 
 O canal telefone é **simulado de propósito**: não há URA, PABX nem CTI. Isso está explícito no código (`channels/phone-mock/`), na API (`GET /channels` retorna `kind: "MOCK"`) e na interface (badges "Telefone · mock" e "simulado (mock)").
 
@@ -227,7 +295,7 @@ O que o mock demonstra é a **continuidade do histórico**, que é o objetivo do
 
 ---
 
-## 6. Segurança e LGPD
+## 7. Segurança e LGPD
 
 ### Autenticação
 
@@ -256,6 +324,7 @@ As salas do WebSocket seguem a mesma regra. Os eventos vão para `user:{id}`, `s
 | Princípio / direito | Implementação |
 |---|---|
 | Necessidade (art. 6º, III) | Menor privilégio para atendentes; do Telegram guardamos **apenas o chat id** (nada de nome, username ou telefone) |
+| IA e transparência (art. 6º, VI; art. 20) | A assistente roda **localmente** (nenhuma conversa vai para terceiros), recebe só o **primeiro nome** do cliente, sempre se apresenta como IA e o cliente pode pedir um humano a qualquer momento; transferências e resoluções da IA ficam na auditoria (`AI_HANDOFF`, `AI_RESOLVED`) |
 | Segurança (art. 46) | bcrypt, AES no segredo TOTP, hash SHA-256 dos códigos de vínculo, token do bot fora do código e dos logs, conteúdo de mensagens fora dos logs |
 | Acesso e portabilidade (art. 18, II e V) | `GET /users/me/data` + botão **Baixar meus dados** no app (JSON com cadastro, protocolos, mensagens de todos os canais e acessos) |
 | Revogação do consentimento (art. 18, IX) | `/desvincular` no bot ou botão no app: apaga o vínculo do Telegram |
@@ -290,7 +359,7 @@ Itens 1 a 6: verificação manual com `curl` contra a API (revalidados em 06/10/
 
 ---
 
-## 7. Modelo de dados
+## 8. Modelo de dados
 
 ```
 User ──< Protocol (clientId / agentId) ──< Message
@@ -304,13 +373,16 @@ User ──< Protocol (clientId / agentId) ──< Message
 
 Protocol: protocolNumber (CLR-AAAA-NNNNN, único) · status OPEN|IN_PROGRESS|WAITING|CLOSED
           priority LOW|MEDIUM|HIGH|URGENT · currentChannel (último contato)
+          aiStatus ACTIVE|HANDED_OFF|RESOLVED|HUMAN|OFF · aiSummary · aiHandoffReason (assistente)
+
+Message.senderRole: CLIENT | AGENT | SUPERVISOR | ADMIN | BOT (assistente virtual, usuário que não faz login)
 ```
 
 Migrações em `backend/prisma/migrations/`. SQLite na PoC; para produção, basta trocar o `provider` para PostgreSQL.
 
 ---
 
-## 8. API REST
+## 9. API REST
 
 Todas as rotas exigem JWT, exceto as marcadas como públicas.
 
@@ -338,11 +410,12 @@ Todas as rotas exigem JWT, exceto as marcadas como públicas.
 | GET | `/users/me/data` | todos | Exportação LGPD |
 | GET | `/users` · `/users/:id` | ADMIN, SUPERVISOR | Usuários |
 | GET | `/users/agents` | staff | Atendentes (para transferência) |
+| GET | `/assistant/status` | staff | Motor da assistente em uso (Ollama local ou regras) |
 | PATCH | `/users/:id/status` | ADMIN | Ativa ou desativa usuário |
 
 ---
 
-## 9. Eventos WebSocket
+## 10. Eventos WebSocket
 
 Conexão: `io('http://localhost:3000', { auth: { token: '<accessToken>' } })`. Tokens restritos ou inválidos recebem `unauthorized` e são desconectados.
 
@@ -356,24 +429,27 @@ Conexão: `io('http://localhost:3000', { auth: { token: '<accessToken>' } })`. T
 | servidor → staff + cliente dono | `protocols_list_updated` | `{ protocolId }` (atualiza listas) |
 | servidor → usuário | `channel_link_updated` | Vínculo do Telegram mudou |
 | servidor → staff | `client_channels_updated` | `{ userId }` (canais do cliente mudaram) |
+| servidor → sala do protocolo | `assistant_typing` | `{ protocolId, typing }` (a assistente está preparando a resposta) |
 
 ---
 
-## 10. Testes
+## 11. Testes
 
 | Comando | O que cobre | Precisa de servidores rodando? |
 |---|---|---|
-| `npm run test:unit` | **33 testes Jest**: comandos do bot, criar/reaproveitar protocolo, ocultação do token, registro de canais, regra de acesso | Não |
+| `npm run test:unit` | **51 testes Jest**: comandos do bot, criar/reaproveitar protocolo, ocultação do token, registro de canais, regra de acesso, assistente (motor de regras, motor Ollama com fetch simulado, travas) | Não |
 | `npm run test:e2e:telegram` | **29 verificações** com backend real e Bot API **fake**: vínculo, protocolo, troca de canal, entrega, WebSocket, idempotência, telefone mock, segurança e LGPD | Não (sobe tudo isolado na porta 3100, banco `e2e.db`) |
+| `npm run test:e2e:assistant` | **12 verificações** da assistente integrada (motor de regras, determinístico): resposta no Telegram e no WebChat, transferência com resumo, saída da IA quando o humano assume, resolução sem humano, métricas | Não (porta 3300) |
 | `npm run test:e2e:ui` | **14 verificações no Chrome** (Playwright): a jornada completa com painel e app abertos ao mesmo tempo, incluindo a configuração do 2FA pela tela | Não (portas 3200/5273/5274) |
 | `npm run test:e2e:2fa` | Ativação do 2FA via API + login com TOTP no navegador | **Sim** (`npm run dev`) |
-| `npm test` | Unitários + e2e Telegram + e2e UI | Não |
+| `npm test` | Unitários + e2e Telegram + e2e assistente + e2e UI | Não |
+| `cd backend && npx ts-node scripts/assistant-scenarios.ts` | Avaliação da **IA real** (Ollama) em conversas de exemplo | Ollama rodando |
 
 Como não é possível automatizar um usuário real do Telegram, os testes sobem um **servidor fake da Bot API** (`tests/fake-telegram-server.mjs`) e apontam o backend para ele com `TELEGRAM_API_BASE`. O resto (long polling, banco, REST, WebSocket, navegador) roda de verdade, e o token real nunca é usado nos testes. Para ver o navegador: `HEADED=1 npm run test:e2e:ui`. As capturas ficam em `test-results/`.
 
 ---
 
-## 11. Estrutura de pastas
+## 12. Estrutura de pastas
 
 ```
 claro-omnichannel/
@@ -389,6 +465,8 @@ claro-omnichannel/
 │       ├── messages/              núcleo: timeline unificada
 │       ├── gateway/               WebSocket (Socket.io)
 │       ├── users/                 usuários + exportação LGPD
+│       ├── assistant/             assistente virtual (IA): motores Ollama/regras, ferramentas, travas
+│       │   └── mock-claro-api.ts  sistemas da Claro SIMULADOS (fatura, rede, modem, visita)
 │       └── channels/              canais plugáveis
 │           ├── channel.types.ts   contrato ChannelAdapter
 │           ├── channel-registry.service.ts / channel-dispatcher.service.ts
@@ -405,7 +483,7 @@ claro-omnichannel/
 
 ---
 
-## 12. Limitações e próximos passos
+## 13. Limitações e próximos passos
 
 - **Banco:** SQLite para rodar localmente. Em produção, PostgreSQL com backups e criptografia em repouso.
 - **Escala:** o long polling exige uma única instância consumindo o bot. Com várias réplicas da API, usar **webhook** (HTTPS público) e Socket.io com adapter Redis.
@@ -415,6 +493,7 @@ claro-omnichannel/
 - **LGPD:** política de retenção e anonimização automática de protocolos antigos; termo de consentimento no vínculo de canais.
 - **Produto:** anexos (fotos do modem, faturas), pesquisa de satisfação (CSAT) ao encerrar, SLA por prioridade, paginação de listas e mensagens, tela de administração de usuários.
 - **2FA:** códigos de recuperação de uso único.
+- **Assistente virtual:** a IA local leva de 15 a 50 s por resposta num PC comum. Em produção: servidor com GPU ou API comercial (o motor é plugável). Integrar às APIs reais da operadora no lugar do `mock-claro-api.ts`; avaliar a IA continuamente com conversas reais anonimizadas.
 
 ---
 

@@ -22,6 +22,8 @@ npm run test:unit          # backend: jest
 npm run test:e2e:telegram  # backend isolado :3100 + Bot API fake
 npm run test:e2e:ui        # Playwright/Chrome: backend :3200 + vite :5273/:5274
 npm run test:e2e:2fa       # exige `npm run dev` rodando (usa o dev.db)
+npm run test:e2e:assistant # assistente com motor de regras (backend :3300)
+cd backend && npx ts-node scripts/assistant-scenarios.ts   # avalia a IA REAL (Ollama) em conversas
 ```
 
 Backend isolado: `cd backend && npm run build && npm start` (gera `dist/main.js`; `tsconfig.build.json` exclui `prisma/`).
@@ -44,6 +46,17 @@ Backend isolado: `cd backend && npm run build && npm start` (gera `dist/main.js`
 - **Telegram** (`channels/telegram/`): `telegram-api.client.ts` (fetch, oculta o token em erros), `telegram-polling.service.ts` (getUpdates, backoff, 409), `telegram-bot.service.ts` (comandos e texto livre → cria/reaproveita protocolo), `telegram-link.service.ts` (código de vínculo, hash SHA-256, 10 min, uso único, 5 tentativas), `telegram.adapter.ts` (entrega + avisos de atribuição/encerramento), `telegram.controller.ts` (endpoints do cliente).
 - Guards globais: `ThrottlerGuard → JwtAuthGuard → RolesGuard`. `@Public()` libera a rota; `@Roles(...)` restringe.
 - `config/load-env.ts` é o **primeiro import** do `main.ts` (decorators leem `process.env` na importação).
+
+## Assistente virtual (IA) — `backend/src/assistant/`
+
+- **Clara** atende primeiro (WebChat e Telegram) na mesma timeline; mensagens com `senderRole: 'BOT'` (usuário `assistente.virtual@claro.com.br`, role BOT, criado no boot, **não faz login**).
+- `AssistantService` assina `message.created` / `protocol.created` / `protocol.updated`: debounce por protocolo (`ASSISTANT_DEBOUNCE_MS`), um turno por vez, sai quando atendente assume ou escreve (`Protocol.aiStatus` → HUMAN).
+- Motores (`AssistantEngine`): `OllamaEngine` (LLM local via `/api/chat` + tools) e `RulesEngine` (palavras-chave, reserva automática). `ASSISTANT_ENGINE=ollama|rules|off`. Modelo escolhido: **qwen3:4b com `OLLAMA_THINK=true`** (4/4 nos cenários; qwen2.5:7b foi 0/4, promete ações sem chamar ferramentas). Resposta leva 15–50 s na RTX 2060.
+- Ferramentas em `assistant-tools.ts` sobre `mock-claro-api.ts` (**sistemas da Claro simulados**, dados determinísticos por cliente).
+- `assistant-guardrails.ts`: pedido de humano/cancelamento/contestação/Procon e "resolveu, obrigado" são decididos pelo código **antes** da IA; ação prometida no texto sem ferramenta é executada; a 1ª resposta sempre se apresenta como IA.
+- Transferência: `aiStatus=HANDED_OFF`, `aiHandoffReason`, `aiSummary` (painel mostra no card). Resolução: protocolo CLOSED com `aiStatus=RESOLVED`. Métricas em `/protocols/stats` (`ai`).
+- Nos e2e a assistente fica `off` por padrão (`startTestBackend({ assistant })`); `e2e-assistant.mjs` usa `rules`.
+- Ollama no Windows: instalado via winget em `%LOCALAPPDATA%\Programs\Ollama`. Se o app não subir o servidor, rode `ollama serve`.
 
 ## Frontends
 
