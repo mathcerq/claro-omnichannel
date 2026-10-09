@@ -72,6 +72,7 @@ Outros comandos úteis (na raiz):
 | `npm run db:reset` | Apaga o banco, reaplica as migrações e roda o seed |
 | `npm test` | Testes unitários + e2e do Telegram, da assistente e de interface |
 | `npm run test:e2e:2fa` | Login com 2FA no navegador (exige `npm run dev` rodando) |
+| `npm run docs:screenshots` | Regera as capturas do painel usadas neste README (ambiente de teste isolado) |
 
 ### Credenciais de demonstração
 
@@ -218,15 +219,31 @@ Teste manual com o bot real **@claro_omnichannel_mathcerq_bot** (com `npm run de
 8. **Encerramento:** no painel, **Encerrar**. O cliente recebe o aviso no Telegram, e a próxima mensagem abre outro protocolo (o encerrado não é reaberto).
 9. **IA resolvendo sozinha:** no app, abra um chamado "Dúvida na fatura". A Clara responde com valor e vencimento; peça a 2ª via e depois diga "era só isso, obrigado". O protocolo é **encerrado pela IA**, sem humano, e entra na taxa de resolução do dashboard.
 
-| Vincular Telegram (app) | Timeline unificada (app) |
-|---|---|
-| ![Vincular Telegram](docs/screenshots/cliente-vincular-telegram.png) | ![Timeline no app](docs/screenshots/cliente-timeline-unificada.png) |
+### Telas reais
+
+Capturas do sistema rodando com o **bot real** [@claro_omnichannel_mathcerq_bot](https://t.me/claro_omnichannel_mathcerq_bot) e a **IA local** (Qwen3 4B via Ollama).
+
+| Clara (IA) atende no Telegram e transfere | Atendente responde pelo painel → chega no Telegram | `/historico`: Telegram, WebChat e telefone no mesmo protocolo |
+|---|---|---|
+| ![Clara no Telegram](docs/screenshots/telegram-clara-ia.png) | ![Resposta do atendente no Telegram](docs/screenshots/telegram-resposta-atendente.png) | ![Histórico unificado no Telegram](docs/screenshots/telegram-historico-unificado.png) |
+
+| App do cliente: Telegram conectado | App do cliente: Clara resolve pelo WebChat | App do cliente: timeline unificada |
+|---|---|---|
+| ![Telegram conectado](docs/screenshots/cliente-telegram-conectado.png) | ![Clara no WebChat](docs/screenshots/cliente-clara-webchat.png) | ![Timeline no app](docs/screenshots/cliente-timeline-unificada.png) |
+
+**Painel do atendente:** a mesma conversa com badge por canal, "✓ entregue no Telegram" e o telefone marcado como mock.
 
 ![Painel: timeline unificada com Telegram, WebChat e telefone simulado](docs/screenshots/painel-timeline-unificada.png)
 
-![Painel: dashboard com indicador de canais reais e mock](docs/screenshots/painel-dashboard.png)
+**Painel: transferência feita pela IA, com motivo e resumo do caso para o atendente**
 
-*Capturas geradas pelo teste automatizado de interface, que usa um servidor fake da Bot API (por isso o bot aparece como `@claro_test_bot`).*
+![Painel: card da assistente com o resumo da transferência](docs/screenshots/painel-ia-transferencia.png)
+
+**Painel: dashboard com canais reais/mock, métricas da IA e selo "Transferido pela IA"**
+
+![Painel: dashboard](docs/screenshots/painel-dashboard.png)
+
+*As duas últimas capturas foram geradas em ambiente de teste isolado (`npm run docs:screenshots`), com a assistente no motor de regras, porque o login de atendente no ambiente real exige o 2FA do celular. As demais são do sistema real.*
 
 ---
 

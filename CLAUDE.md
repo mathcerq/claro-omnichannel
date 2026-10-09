@@ -23,6 +23,7 @@ npm run test:e2e:telegram  # backend isolado :3100 + Bot API fake
 npm run test:e2e:ui        # Playwright/Chrome: backend :3200 + vite :5273/:5274
 npm run test:e2e:2fa       # exige `npm run dev` rodando (usa o dev.db)
 npm run test:e2e:assistant # assistente com motor de regras (backend :3300)
+npm run docs:screenshots   # regera docs/screenshots/painel-*.png (ambiente isolado :3400/:5373)
 cd backend && npx ts-node scripts/assistant-scenarios.ts   # avalia a IA REAL (Ollama) em conversas
 ```
 

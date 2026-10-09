@@ -56,9 +56,9 @@ export function createStepper() {
  * Sobe Bot API fake + backend real (dist/main.js) com banco SQLite isolado.
  * Nunca usa o token real do .env: TELEGRAM_BOT_TOKEN é sobrescrito.
  */
-export async function startTestBackend({ port = 3100, dbName = 'e2e.db', corsOrigins, assistant = 'off' } = {}) {
+export async function startTestBackend({ port = 3100, dbName = 'e2e.db', corsOrigins, assistant = 'off', botUsername } = {}) {
   const fakeToken = `e2e-${randomBytes(8).toString('hex')}`;
-  const fake = await startFakeTelegram({ token: fakeToken });
+  const fake = await startFakeTelegram({ token: fakeToken, ...(botUsername ? { username: botUsername } : {}) });
   const dbFile = path.join(BACKEND, 'prisma', dbName);
 
   const env = {
