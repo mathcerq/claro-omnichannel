@@ -23,7 +23,6 @@ import {
   waitFor,
   createStepper,
   startTestBackend,
-  setupStaff2FA,
 } from './helpers.mjs';
 
 const API_PORT = 3200;
@@ -68,9 +67,6 @@ async function main() {
   const { fake, api } = env;
   const lastSent = () => fake.sentTo(CHAT_ID).at(-1)?.text ?? '';
 
-  // 2FA do atendente configurado via API; o login com código acontece no navegador
-  const agentSecret = await setupStaff2FA(api, 'joao.atendente@claro.com.br');
-
   browser = await chromium.launch({ channel: process.env.PW_CHANNEL || 'chrome', headless: !process.env.HEADED });
   const client = await (await browser.newContext({ viewport: { width: 430, height: 900 } })).newPage();
   const agent = await (await browser.newContext({ viewport: { width: 1400, height: 900 } })).newPage();
@@ -107,11 +103,30 @@ async function main() {
   });
 
   console.log('\n[Atendente — Painel]');
-  await step('atendente faz login com 2FA (TOTP)', async () => {
-    await agent.goto(`${AGENT_URL}/login`);
+  const agentLogin = async () => {
     await agent.fill('input[type="email"]', 'joao.atendente@claro.com.br');
     await agent.fill('input[type="password"]', PASSWORD);
     await agent.click('button[type="submit"]');
+  };
+
+  let agentSecret;
+  await step('primeiro acesso: atendente configura o 2FA obrigatório pela tela (QR Code)', async () => {
+    await agent.goto(`${AGENT_URL}/login`);
+    await agentLogin();
+    await agent.getByRole('button', { name: 'Configurar 2FA agora' }).click();
+    // O QR Code precisa renderizar (antes, a página quebrava e ficava vazia)
+    await agent.locator('svg[height="190"]').waitFor({ timeout: 8000 });
+    agentSecret = (await agent.locator('p.select-all').textContent()).trim();
+    assert.match(agentSecret, /^[A-Z2-7]{16,}$/);
+    await shot(agent, '00-painel-configurar-2fa');
+    await agent.getByRole('button', { name: /Já escaneei/ }).click();
+    await agent.locator('input[placeholder="000000"]').fill(authenticator.generate(agentSecret));
+    await agent.getByRole('button', { name: 'Ativar 2FA e fazer login' }).click();
+    await agent.locator('input[type="email"]').waitFor();
+  });
+
+  await step('atendente faz login com 2FA (TOTP)', async () => {
+    await agentLogin();
     await agent.locator('input[placeholder="000000"]').fill(authenticator.generate(agentSecret));
     await agent.click('button[type="submit"]');
     await agent.getByText('Painel do Atendente').waitFor();
@@ -172,6 +187,19 @@ async function main() {
     await client.getByText(/Ligação simulada/).first().waitFor({ timeout: 8000 });
     await shot(agent, '04-painel-timeline-unificada');
     await shot(client, '05-cliente-timeline-unificada');
+  });
+
+  await step('F5 no protocolo mantém a página e a timeline (sessão restaurada)', async () => {
+    await agent.reload();
+    await agent.getByText('Canais do cliente').waitFor({ timeout: 8000 });
+    await agent.getByText('O sinal some por volta das 21h').waitFor();
+  });
+
+  await step('cliente abre a configuração opcional de 2FA e o QR Code aparece', async () => {
+    await client.goto(`${CLIENT_URL}/security`);
+    await client.getByRole('button', { name: 'Ativar 2FA' }).click();
+    await client.locator('svg[height="200"]').waitFor({ timeout: 8000 });
+    await client.getByRole('button', { name: /Já escaneei/ }).waitFor();
   });
 
   console.log(`\n✅ ${stepper.passed} verificações de interface passaram. Screenshots em test-results/ui/\n`);

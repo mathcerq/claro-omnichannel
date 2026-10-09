@@ -365,7 +365,7 @@ Conexão: `io('http://localhost:3000', { auth: { token: '<accessToken>' } })`. T
 |---|---|---|
 | `npm run test:unit` | **33 testes Jest**: comandos do bot, criar/reaproveitar protocolo, ocultação do token, registro de canais, regra de acesso | Não |
 | `npm run test:e2e:telegram` | **29 verificações** com backend real e Bot API **fake**: vínculo, protocolo, troca de canal, entrega, WebSocket, idempotência, telefone mock, segurança e LGPD | Não (sobe tudo isolado na porta 3100, banco `e2e.db`) |
-| `npm run test:e2e:ui` | **11 verificações no Chrome** (Playwright): a jornada completa com painel e app abertos ao mesmo tempo | Não (portas 3200/5273/5274) |
+| `npm run test:e2e:ui` | **14 verificações no Chrome** (Playwright): a jornada completa com painel e app abertos ao mesmo tempo, incluindo a configuração do 2FA pela tela | Não (portas 3200/5273/5274) |
 | `npm run test:e2e:2fa` | Ativação do 2FA via API + login com TOTP no navegador | **Sim** (`npm run dev`) |
 | `npm test` | Unitários + e2e Telegram + e2e UI | Não |
 
